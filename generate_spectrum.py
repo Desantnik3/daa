@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import math
 import random
 from pathlib import Path
 from statistics import median
@@ -22,7 +23,9 @@ FREQ_STOP_MHZ = 2730
 FREQ_STEP_MHZ = 5
 
 BASELINE_DBM = -50.0
+MID_PEAK_DBM = -34.0
 PEAK_DBM = 10.0
+MID_PEAK_RANGES_MHZ = ((1800, 1860), (2080, 2140))
 PEAK_RANGE_MHZ = (2520, 2680)
 
 SUBTRACT_OUTSIDE_DBM = 20.0
@@ -104,28 +107,50 @@ def freq_to_x(freq: float, x_min: int, x_max: int) -> int:
 
 def estimate_scale(y_by_x: dict[int, int], x_min: int, x_max: int) -> tuple[float, float]:
     baseline_samples: list[int] = []
+    mid_samples: list[int] = []
     peak_samples: list[int] = []
     for x, y in y_by_x.items():
         freq = x_to_freq(x, x_min, x_max)
         if PEAK_RANGE_MHZ[0] <= freq <= PEAK_RANGE_MHZ[1]:
             peak_samples.append(y)
-        elif (1750 <= freq <= 1900) or (2050 <= freq <= 2150):
-            continue
+        elif any(start <= freq <= end for start, end in MID_PEAK_RANGES_MHZ):
+            mid_samples.append(y)
         else:
             baseline_samples.append(y)
 
-    if not baseline_samples or not peak_samples:
+    if not baseline_samples:
         raise SystemExit("Insufficient samples to estimate scaling.")
 
     baseline_y = median(baseline_samples)
-    peak_y = median(peak_samples)
+    if mid_samples:
+        mid_y = median(mid_samples)
+        if mid_y == baseline_y:
+            raise SystemExit("Invalid scale: mid-peak and baseline y are identical.")
+        slope = (MID_PEAK_DBM - BASELINE_DBM) / (mid_y - baseline_y)
+        intercept = BASELINE_DBM - slope * baseline_y
+        return slope, intercept
 
+    if not peak_samples:
+        raise SystemExit("Insufficient samples to estimate scaling.")
+
+    peak_y = median(peak_samples)
     if peak_y == baseline_y:
         raise SystemExit("Invalid scale: peak and baseline y are identical.")
 
     slope = (PEAK_DBM - BASELINE_DBM) / (peak_y - baseline_y)
     intercept = BASELINE_DBM - slope * baseline_y
     return slope, intercept
+
+
+def band_shape(freq: float) -> float:
+    left, right = PEAK_RANGE_MHZ
+    width = right - left
+    t = (freq - left) / width
+    edge = 0.5 - 0.5 * math.cos(math.pi * t)
+    amplitude = 12.0 + 3.5 * edge
+    amplitude += 1.2 * math.sin(freq * 0.15) + 0.7 * math.sin(freq * 0.47)
+    amplitude += 0.6 * (t - 0.5)
+    return amplitude
 
 
 def main() -> None:
@@ -143,8 +168,10 @@ def main() -> None:
     for freq in frequencies:
         x = freq_to_x(freq, x_min, x_max)
         y = y_by_x.get(x, y_by_x[min(y_by_x, key=lambda k: abs(k - x))])
-        amplitude = slope * y + intercept
-        if not (PEAK_RANGE_MHZ[0] <= freq <= PEAK_RANGE_MHZ[1]):
+        if PEAK_RANGE_MHZ[0] <= freq <= PEAK_RANGE_MHZ[1]:
+            amplitude = band_shape(freq)
+        else:
+            amplitude = slope * y + intercept
             amplitude -= SUBTRACT_OUTSIDE_DBM
         amplitude *= 1.0 + random.uniform(-RANDOM_VARIATION, RANDOM_VARIATION)
         amplitudes.append(amplitude)
