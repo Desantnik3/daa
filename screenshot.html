@@ -35,9 +35,41 @@
           throw new Error("Pixel data length mismatch");
         }
 
+        function applySharpen(src, width, height, amount) {
+          const dst = new Uint8ClampedArray(src.length);
+          dst.set(src);
+          if (amount <= 0) {
+            return dst;
+          }
+
+          const stride = width * 4;
+          const center = 1 + 4 * amount;
+          const neighbor = -amount;
+
+          for (let y = 1; y < height - 1; y++) {
+            const row = y * stride;
+            for (let x = 1; x < width - 1; x++) {
+              const idx = row + x * 4;
+              for (let c = 0; c < 3; c++) {
+                const v =
+                  src[idx + c] * center +
+                  src[idx + c - 4] * neighbor +
+                  src[idx + c + 4] * neighbor +
+                  src[idx + c - stride] * neighbor +
+                  src[idx + c + stride] * neighbor;
+                dst[idx + c] = v < 0 ? 0 : v > 255 ? 255 : v;
+              }
+            }
+          }
+
+          return dst;
+        }
+
+        const sharpened = applySharpen(bytes, width, height, 0.8);
+
         const canvas = document.getElementById("c");
         const ctx = canvas.getContext("2d");
-        const imageData = new ImageData(bytes, width, height);
+        const imageData = new ImageData(sharpened, width, height);
         ctx.putImageData(imageData, 0, 0);
       })();
     </script>
