@@ -32,6 +32,18 @@ SUBTRACT_OUTSIDE_DBM = 20.0
 RANDOM_SEED = 20260121
 RANDOM_VARIATION = 0.02
 
+MARKERS = [
+    (1, 890.0),
+    (2, 935.0),
+    (3, 1735.0),
+    (4, 1835.0),
+    (5, 1960.0),
+    (6, 2110.0),
+    (7, 2540.0),
+    (8, 2660.0),
+    (9, 2712.6),
+]
+
 
 def is_trace_pixel(r: int, g: int, b: int) -> bool:
     return g > r + 30 and g > b + 30 and g > 80
@@ -153,6 +165,25 @@ def band_shape(freq: float) -> float:
     return amplitude
 
 
+def amplitude_at(freq: float, frequencies: list[int], amplitudes: list[float]) -> float:
+    lookup = dict(zip(frequencies, amplitudes))
+    if freq in lookup:
+        return lookup[freq]
+
+    if freq < frequencies[0] or freq > frequencies[-1]:
+        raise ValueError("Frequency out of range.")
+
+    lower = int((freq - FREQ_START_MHZ) // FREQ_STEP_MHZ) * FREQ_STEP_MHZ + FREQ_START_MHZ
+    upper = min(lower + FREQ_STEP_MHZ, FREQ_STOP_MHZ)
+    if lower == upper:
+        return lookup[lower]
+
+    a0 = lookup[lower]
+    a1 = lookup[upper]
+    t = (freq - lower) / (upper - lower)
+    return a0 + (a1 - a0) * t
+
+
 def main() -> None:
     if not IMAGE_PATH.exists():
         raise SystemExit(f"Missing input image: {IMAGE_PATH}")
@@ -182,13 +213,55 @@ def main() -> None:
         for freq, amp in zip(frequencies, amplitudes):
             writer.writerow([freq, f"{amp:.3f}"])
 
-    plt.figure(figsize=(10, 4))
-    plt.plot(frequencies, amplitudes)
-    plt.xlabel("Frequency (MHz)")
-    plt.ylabel("Amplitude (dBm)")
-    plt.grid(True)
-    plt.tight_layout()
-    plt.savefig(OUTPUT_PNG, dpi=150)
+    marker_values = []
+    for marker_id, marker_freq in MARKERS:
+        marker_amp = amplitude_at(marker_freq, frequencies, amplitudes)
+        marker_values.append((marker_id, marker_freq, marker_amp))
+
+    fig, (ax, ax_text) = plt.subplots(
+        2, 1, figsize=(10, 4.8), gridspec_kw={"height_ratios": [4, 1]}
+    )
+    (line,) = ax.plot(frequencies, amplitudes)
+    ax.plot(
+        [freq for _, freq, _ in marker_values],
+        [amp for _, _, amp in marker_values],
+        linestyle="None",
+        marker="o",
+        color=line.get_color(),
+    )
+    ax.set_xlabel("Frequency (MHz)")
+    ax.set_ylabel("Amplitude (dBm)")
+    ax.grid(True)
+
+    ax_text.axis("off")
+    formatted = {
+        marker_id: f"Marker {marker_id}: {freq:.4f} MHz, {amp:.1f} dBm"
+        for marker_id, freq, amp in marker_values
+    }
+    columns = ([1, 4, 7], [2, 5, 8], [3, 6, 9])
+    column_width = 34
+    lines = []
+    for row_idx in range(max(len(col) for col in columns)):
+        parts = []
+        for col in columns:
+            if row_idx < len(col):
+                parts.append(formatted[col[row_idx]].ljust(column_width))
+            else:
+                parts.append("".ljust(column_width))
+        lines.append("".join(parts).rstrip())
+
+    ax_text.text(
+        0.01,
+        0.9,
+        "\n".join(lines),
+        va="top",
+        ha="left",
+        family="monospace",
+        fontsize=8,
+    )
+
+    fig.tight_layout()
+    fig.savefig(OUTPUT_PNG, dpi=150)
 
     print(f"Wrote {OUTPUT_CSV} and {OUTPUT_PNG}")
 
