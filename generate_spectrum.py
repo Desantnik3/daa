@@ -221,14 +221,26 @@ def main() -> None:
     fig, (ax, ax_text) = plt.subplots(
         2, 1, figsize=(10, 4.8), gridspec_kw={"height_ratios": [4, 1]}
     )
-    (line,) = ax.plot(frequencies, amplitudes)
+    ax.plot(frequencies, amplitudes)
     ax.plot(
         [freq for _, freq, _ in marker_values],
         [amp for _, _, amp in marker_values],
         linestyle="None",
         marker="o",
-        color=line.get_color(),
+        color="black",
+        markersize=4,
     )
+    for marker_id, marker_freq, marker_amp in marker_values:
+        ax.annotate(
+            str(marker_id),
+            (marker_freq, marker_amp),
+            textcoords="offset points",
+            xytext=(0, 4),
+            ha="center",
+            va="bottom",
+            fontsize=7,
+            color="black",
+        )
     ax.set_xlabel("Frequency (MHz)")
     ax.set_ylabel("Amplitude (dBm)")
     ax.grid(True)
@@ -239,7 +251,7 @@ def main() -> None:
         for marker_id, freq, amp in marker_values
     }
     columns = ([1, 4, 7], [2, 5, 8], [3, 6, 9])
-    column_width = 34
+    column_width = 42
     lines = []
     for row_idx in range(max(len(col) for col in columns)):
         parts = []
