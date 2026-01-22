@@ -27,6 +27,7 @@ MID_PEAK_DBM = -34.0
 PEAK_DBM = 10.0
 MID_PEAK_RANGES_MHZ = ((1800, 1860), (2080, 2140))
 PEAK_RANGE_MHZ = (2620, 2690)
+PEAK_OFFSET_DBM = -10.5
 
 SUBTRACT_OUTSIDE_DBM = 20.0
 RANDOM_SEED = 20260121
@@ -165,6 +166,7 @@ def band_shape(freq: float) -> float:
     rng = random.Random(RANDOM_SEED + int(freq * 10))
     jagged = rng.uniform(-1.6, 1.6)
     amplitude += jagged * (0.3 + 0.7 * edge)
+    amplitude += PEAK_OFFSET_DBM
     return amplitude
 
 
