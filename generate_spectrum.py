@@ -162,6 +162,9 @@ def band_shape(freq: float) -> float:
     amplitude = 12.0 + 3.5 * edge
     amplitude += 1.2 * math.sin(freq * 0.15) + 0.7 * math.sin(freq * 0.47)
     amplitude += 0.6 * (t - 0.5)
+    rng = random.Random(RANDOM_SEED + int(freq * 10))
+    jagged = rng.uniform(-1.6, 1.6)
+    amplitude += jagged * (0.3 + 0.7 * edge)
     return amplitude
 
 
