@@ -231,7 +231,7 @@ def extract_trace_y(image: Image.Image) -> tuple[dict[int, int], int, int]:
                 coords.append((x, y))
 
     if not coords:
-        raise SystemExit("No trace pixels detected. Adjust color thresholds.")
+        raise ValueError("Линия трассы не найдена. Проверьте пороги цвета.")
 
     ys_sorted = sorted(y for _, y in coords)
     y_lo = ys_sorted[int(len(ys_sorted) * 0.02)]
@@ -243,7 +243,7 @@ def extract_trace_y(image: Image.Image) -> tuple[dict[int, int], int, int]:
             trace.setdefault(x, []).append(y)
 
     if not trace:
-        raise SystemExit("Trace extraction failed after filtering.")
+        raise ValueError("Не удалось выделить трассу после фильтрации.")
 
     x_min = min(trace)
     x_max = max(trace)
@@ -300,23 +300,23 @@ def estimate_scale(y_by_x: dict[int, int], x_min: int, x_max: int) -> tuple[floa
             baseline_samples.append(y)
 
     if not baseline_samples:
-        raise SystemExit("Insufficient samples to estimate scaling.")
+        raise ValueError("Недостаточно данных для оценки масштаба.")
 
     baseline_y = median(baseline_samples)
     if mid_samples:
         mid_y = median(mid_samples)
         if mid_y == baseline_y:
-            raise SystemExit("Invalid scale: mid-peak and baseline y are identical.")
+            raise ValueError("Ошибка масштаба: mid-peak совпадает с базой.")
         slope = (MID_PEAK_DBM - BASELINE_DBM) / (mid_y - baseline_y)
         intercept = BASELINE_DBM - slope * baseline_y
         return slope, intercept
 
     if not peak_samples:
-        raise SystemExit("Insufficient samples to estimate scaling.")
+        raise ValueError("Недостаточно данных для оценки масштаба.")
 
     peak_y = median(peak_samples)
     if peak_y == baseline_y:
-        raise SystemExit("Invalid scale: peak and baseline y are identical.")
+        raise ValueError("Ошибка масштаба: peak совпадает с базой.")
 
     slope = (PEAK_DBM - BASELINE_DBM) / (peak_y - baseline_y)
     intercept = BASELINE_DBM - slope * baseline_y
@@ -394,23 +394,15 @@ def amplitude_at(freq: float, frequencies: list[int], amplitudes: list[float]) -
     return a0 + (a1 - a0) * t
 
 
-def main() -> None:
-    args = parse_args()
-    if args.write_config:
-        write_default_config(args.write_config)
-        print(f"Wrote default config to {args.write_config}")
-        return
-
-    config = load_config(args.config)
+def generate_outputs(image_path: Path, output_csv: Path, output_png: Path, config: dict) -> None:
     apply_config(config)
     plot_config = config["plot"]
 
-    image_path = Path(args.image)
-    output_csv = Path(args.output_csv)
-    output_png = Path(args.output_png)
-
     if not image_path.exists():
-        raise SystemExit(f"Missing input image: {image_path}")
+        raise FileNotFoundError(f"Не найден файл изображения: {image_path}")
+
+    output_csv.parent.mkdir(parents=True, exist_ok=True)
+    output_png.parent.mkdir(parents=True, exist_ok=True)
 
     image = Image.open(image_path)
     y_by_x, x_min, x_max = extract_trace_y(image)
@@ -550,6 +542,23 @@ def main() -> None:
     fig.savefig(output_png, dpi=int(plot_config.get("dpi", 150)))
 
     print(f"Wrote {output_csv} and {output_png}")
+
+
+def main() -> None:
+    args = parse_args()
+    if args.write_config:
+        write_default_config(args.write_config)
+        print(f"Wrote default config to {args.write_config}")
+        return
+
+    config = load_config(args.config)
+    image_path = Path(args.image)
+    output_csv = Path(args.output_csv)
+    output_png = Path(args.output_png)
+    try:
+        generate_outputs(image_path, output_csv, output_png, config)
+    except Exception as exc:
+        raise SystemExit(str(exc)) from exc
 
 
 if __name__ == "__main__":

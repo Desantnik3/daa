@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 import sys
 from copy import deepcopy
 from pathlib import Path
@@ -14,7 +13,6 @@ import generate_spectrum as gen
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_CONFIG_PATH = SCRIPT_DIR / "config_example.json"
-GENERATOR_PATH = SCRIPT_DIR / "generate_spectrum.py"
 
 
 class ToolTip:
@@ -174,6 +172,9 @@ class SpectrumApp:
         if DEFAULT_CONFIG_PATH.exists():
             return gen.load_config(str(DEFAULT_CONFIG_PATH))
         return deepcopy(gen.DEFAULT_CONFIG)
+
+    def default_output_dir(self) -> Path:
+        return Path.home() / "SpectrumGenerator"
 
     def _build_ui(self) -> None:
         notebook = ttk.Notebook(self.root)
@@ -561,9 +562,6 @@ class SpectrumApp:
             messagebox.showerror("Ошибка конфигурации", str(exc))
             return
 
-        config_path = SCRIPT_DIR / "gui_config.json"
-        config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
-
         image_path = self.image_path_var.get().strip()
         output_csv = self.output_csv_var.get().strip()
         output_png = self.output_png_var.get().strip()
@@ -573,34 +571,34 @@ class SpectrumApp:
             )
             return
 
-        cmd = [
-            sys.executable,
-            str(GENERATOR_PATH),
-            "--config",
-            str(config_path),
-            "--image",
-            image_path,
-            "--output-csv",
-            output_csv,
-            "--output-png",
-            output_png,
-        ]
-        self.log("Запуск: " + " ".join(cmd))
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.stdout:
-            self.log(result.stdout.strip())
-        if result.stderr:
-            self.log(result.stderr.strip())
-        if result.returncode != 0:
-            messagebox.showerror("Ошибка генерации", "Не удалось создать файлы.")
-        else:
-            messagebox.showinfo("Готово", "График и CSV успешно созданы.")
+        image_path_obj = Path(image_path).expanduser()
+        output_csv_obj = Path(output_csv).expanduser()
+        output_png_obj = Path(output_png).expanduser()
+
+        try:
+            gen.generate_outputs(
+                image_path_obj,
+                output_csv_obj,
+                output_png_obj,
+                config,
+            )
+        except Exception as exc:
+            self.log(str(exc))
+            messagebox.showerror("Ошибка генерации", str(exc))
+            return
+
+        self.log(f"Созданы файлы: {output_csv_obj}, {output_png_obj}")
+        messagebox.showinfo("Готово", "График и CSV успешно созданы.")
 
     def populate_from_config(self, config: dict) -> None:
         self.config = deepcopy(config)
-        self.image_path_var.set(str(gen.IMAGE_PATH))
-        self.output_csv_var.set(str(gen.OUTPUT_CSV))
-        self.output_png_var.set(str(gen.OUTPUT_PNG))
+        default_dir = self.default_output_dir()
+        default_image = Path(gen.IMAGE_PATH)
+        self.image_path_var.set(
+            str(default_image) if default_image.exists() else ""
+        )
+        self.output_csv_var.set(str(default_dir / "spectrum.csv"))
+        self.output_png_var.set(str(default_dir / "spectrum.png"))
 
         self.freq_start_var.set(str(config["freq_start_mhz"]))
         self.freq_stop_var.set(str(config["freq_stop_mhz"]))
