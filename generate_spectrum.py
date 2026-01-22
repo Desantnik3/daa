@@ -545,7 +545,6 @@ def generate_series(
             amp
             for freq, amp in zip(frequencies, base_amplitudes)
             if not in_ranges(freq, active_ranges)
-            and not in_ranges(freq, SUPPRESS_RANGES_MHZ)
         ]
     else:
         floor_samples = [
@@ -561,9 +560,7 @@ def generate_series(
     amplitudes: list[float] = []
     random.seed(RANDOM_SEED)
     for freq, base_amp in zip(frequencies, base_amplitudes):
-        if in_ranges(freq, SUPPRESS_RANGES_MHZ):
-            amplitude = dl_floor_value(freq, floor_level)
-        elif RANGE_RULES:
+        if RANGE_RULES:
             rule = find_rule(freq)
             if rule:
                 if rule["mode"] == "raise":
@@ -573,7 +570,9 @@ def generate_series(
             else:
                 amplitude = base_amp + noise_floor_variation(freq)
         else:
-            if in_range(freq, UL_MAIN_RANGE_MHZ):
+            if in_ranges(freq, SUPPRESS_RANGES_MHZ):
+                amplitude = dl_floor_value(freq, floor_level)
+            elif in_range(freq, UL_MAIN_RANGE_MHZ):
                 amplitude = floor_level + ul_main_offset(freq)
             elif in_ranges(freq, UL_MID_RANGES_MHZ):
                 band = next(b for b in UL_MID_RANGES_MHZ if in_range(freq, b))

@@ -424,7 +424,8 @@ class SpectrumApp:
         label.grid(row=6, column=0, sticky="w", pady=(8, 0))
         self._add_tooltip(
             label,
-            "Диапазоны, которые нужно опустить до уровня шума.",
+            "Диапазоны, которые нужно опустить до уровня шума.\n"
+            "Не используются, если заданы правила справа.",
         )
         self.suppress_ranges_text = tk.Text(parent, height=4, width=24)
         self.suppress_ranges_text.grid(row=7, column=0, columnspan=2, sticky="ew")
