@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from copy import deepcopy
 from pathlib import Path
+import re
 from tkinter import filedialog, messagebox
 import tkinter as tk
 from tkinter import ttk
@@ -122,6 +123,81 @@ def format_marker_lines(markers: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def parse_range_rules_lines(text: str) -> list[dict]:
+    rules: list[dict] = []
+    for line in text.splitlines():
+        raw = line.strip()
+        if not raw:
+            continue
+        parts = [p.strip() for p in re.split(r"[|;]", raw) if p.strip()]
+        if len(parts) < 3:
+            raise ValueError(f"Неверная строка правила: {line}")
+        label = parts[0]
+        range_part = parts[1].replace(" ", "")
+        if "-" not in range_part:
+            raise ValueError(f"Неверный диапазон: {parts[1]}")
+        start_str, end_str = range_part.split("-", 1)
+        start = float(start_str)
+        end = float(end_str)
+        mode_raw = parts[2].lower()
+        mode_map = {
+            "raise": "raise",
+            "up": "raise",
+            "boost": "raise",
+            "поднять": "raise",
+            "увеличить": "raise",
+            "lower": "lower",
+            "down": "lower",
+            "noise": "lower",
+            "suppress": "lower",
+            "понизить": "lower",
+            "уменьшить": "lower",
+            "шум": "lower",
+        }
+        mode = mode_map.get(mode_raw)
+        if not mode:
+            raise ValueError(f"Неверный режим: {parts[2]}")
+        rule = {
+            "label": label,
+            "start_mhz": start,
+            "end_mhz": end,
+            "mode": mode,
+        }
+        if mode == "raise":
+            if len(parts) < 4:
+                raise ValueError(f"Нужен уровень для правила: {line}")
+            rule["target_db"] = float(parts[3])
+            if len(parts) >= 5 and parts[4]:
+                rule["edge_extra_db"] = float(parts[4])
+            if len(parts) >= 6 and parts[5]:
+                rule["jitter_db"] = float(parts[5])
+            if len(parts) >= 7 and parts[6]:
+                rule["cap_above_floor_db"] = float(parts[6])
+        rules.append(rule)
+    return rules
+
+
+def format_range_rules_lines(rules: list[dict]) -> str:
+    lines = []
+    for rule in rules:
+        label = rule.get("label", "")
+        start = rule.get("start_mhz", 0)
+        end = rule.get("end_mhz", 0)
+        mode = rule.get("mode", "lower")
+        mode_label = "поднять" if mode == "raise" else "понизить"
+        if mode == "raise":
+            target = rule.get("target_db", 0)
+            edge = rule.get("edge_extra_db", "")
+            jitter = rule.get("jitter_db", "")
+            cap = rule.get("cap_above_floor_db", "")
+            lines.append(
+                f"{label}; {start}-{end}; {mode_label}; {target}; {edge}; {jitter}; {cap}".strip()
+            )
+        else:
+            lines.append(f"{label}; {start}-{end}; {mode_label}")
+    return "\n".join(lines)
+
+
 class SpectrumApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
@@ -165,6 +241,7 @@ class SpectrumApp:
         self.ul_mid_ranges_text: tk.Text | None = None
         self.dl_ranges_text: tk.Text | None = None
         self.suppress_ranges_text: tk.Text | None = None
+        self.range_rules_text: tk.Text | None = None
 
         self.log_text: tk.Text | None = None
         self.log_menu: tk.Menu | None = None
@@ -408,6 +485,20 @@ class SpectrumApp:
         self.suppress_ranges_text.grid(row=7, column=0, columnspan=2, sticky="ew")
         self._add_tooltip(
             self.suppress_ranges_text, "Каждая строка: начало-конец диапазона."
+        )
+
+        label = ttk.Label(parent, text="Правила диапазонов (по строке)")
+        label.grid(row=6, column=2, sticky="w", pady=(8, 0))
+        self._add_tooltip(
+            label,
+            "Формат: имя; 1710-1785; поднять; 70; 4; 2; 75",
+        )
+        self.range_rules_text = tk.Text(parent, height=6, width=24)
+        self.range_rules_text.grid(row=7, column=2, columnspan=2, sticky="ew")
+        self._add_tooltip(
+            self.range_rules_text,
+            "поля: имя; диапазон; поднять/понизить; "
+            "уровень; край; джиттер; лимит.",
         )
 
     def _build_levels_tab(self, parent: ttk.Frame) -> None:
@@ -860,6 +951,11 @@ class SpectrumApp:
             self.markers_text.insert(
                 "1.0", format_marker_lines(config["markers"])
             )
+        if self.range_rules_text:
+            self.range_rules_text.delete("1.0", "end")
+            self.range_rules_text.insert(
+                "1.0", format_range_rules_lines(config.get("range_rules", []))
+            )
         self.on_toggle_csv()
 
     def build_config(self) -> dict:
@@ -917,6 +1013,11 @@ class SpectrumApp:
             raise ValueError("Не заданы маркеры.")
         config["markers"] = parse_marker_lines(
             self.markers_text.get("1.0", "end")
+        )
+        if not self.range_rules_text:
+            raise ValueError("Не заданы правила диапазонов.")
+        config["range_rules"] = parse_range_rules_lines(
+            self.range_rules_text.get("1.0", "end")
         )
 
         return config

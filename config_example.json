@@ -33,6 +33,56 @@
   "noise_ripple_db": 0.8,
   "trace_green_min": 80,
   "trace_green_delta": 30,
+  "range_rules": [
+    {
+      "label": "UL 1800",
+      "start_mhz": 1710,
+      "end_mhz": 1785,
+      "mode": "raise",
+      "target_db": 70.0,
+      "edge_extra_db": 4.0,
+      "jitter_db": 1.6,
+      "cap_above_floor_db": 75.0
+    },
+    {
+      "label": "DL 1800",
+      "start_mhz": 1805,
+      "end_mhz": 1880,
+      "mode": "lower"
+    },
+    {
+      "label": "UL 2100",
+      "start_mhz": 1920,
+      "end_mhz": 1980,
+      "mode": "raise",
+      "target_db": 70.0,
+      "edge_extra_db": 4.0,
+      "jitter_db": 1.6,
+      "cap_above_floor_db": 75.0
+    },
+    {
+      "label": "DL 2100",
+      "start_mhz": 2110,
+      "end_mhz": 2170,
+      "mode": "lower"
+    },
+    {
+      "label": "UL 2600",
+      "start_mhz": 2500,
+      "end_mhz": 2570,
+      "mode": "raise",
+      "target_db": 70.0,
+      "edge_extra_db": 5.0,
+      "jitter_db": 2.0,
+      "cap_above_floor_db": 75.0
+    },
+    {
+      "label": "DL 2600",
+      "start_mhz": 2620,
+      "end_mhz": 2690,
+      "mode": "lower"
+    }
+  ],
   "subtract_outside_dbm": 20.0,
   "random_seed": 20260121,
   "random_variation": 0.02,

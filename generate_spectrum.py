@@ -43,6 +43,7 @@ NOISE_JITTER_DB = 2.8
 NOISE_RIPPLE_DB = 0.8
 TRACE_GREEN_MIN = 80
 TRACE_GREEN_DELTA = 30
+RANGE_RULES: list[dict] = []
 
 SUBTRACT_OUTSIDE_DBM = 20.0
 RANDOM_SEED = 20260121
@@ -82,6 +83,56 @@ DEFAULT_CONFIG = {
     "noise_ripple_db": NOISE_RIPPLE_DB,
     "trace_green_min": TRACE_GREEN_MIN,
     "trace_green_delta": TRACE_GREEN_DELTA,
+    "range_rules": [
+        {
+            "label": "UL 1800",
+            "start_mhz": 1710,
+            "end_mhz": 1785,
+            "mode": "raise",
+            "target_db": 70.0,
+            "edge_extra_db": 4.0,
+            "jitter_db": 1.6,
+            "cap_above_floor_db": 75.0
+        },
+        {
+            "label": "DL 1800",
+            "start_mhz": 1805,
+            "end_mhz": 1880,
+            "mode": "lower"
+        },
+        {
+            "label": "UL 2100",
+            "start_mhz": 1920,
+            "end_mhz": 1980,
+            "mode": "raise",
+            "target_db": 70.0,
+            "edge_extra_db": 4.0,
+            "jitter_db": 1.6,
+            "cap_above_floor_db": 75.0
+        },
+        {
+            "label": "DL 2100",
+            "start_mhz": 2110,
+            "end_mhz": 2170,
+            "mode": "lower"
+        },
+        {
+            "label": "UL 2600",
+            "start_mhz": 2500,
+            "end_mhz": 2570,
+            "mode": "raise",
+            "target_db": 70.0,
+            "edge_extra_db": 5.0,
+            "jitter_db": 2.0,
+            "cap_above_floor_db": 75.0
+        },
+        {
+            "label": "DL 2600",
+            "start_mhz": 2620,
+            "end_mhz": 2690,
+            "mode": "lower"
+        }
+    ],
     "subtract_outside_dbm": SUBTRACT_OUTSIDE_DBM,
     "random_seed": RANDOM_SEED,
     "random_variation": RANDOM_VARIATION,
@@ -124,6 +175,35 @@ def normalize_markers(markers: list[object]) -> list[tuple[int, float]]:
     return normalized
 
 
+def normalize_range_rules(rules: list[dict]) -> list[dict]:
+    normalized: list[dict] = []
+    for idx, rule in enumerate(rules):
+        label = str(rule.get("label", f"Rule {idx + 1}"))
+        start = float(rule.get("start_mhz", rule.get("start", 0.0)))
+        end = float(rule.get("end_mhz", rule.get("end", 0.0)))
+        mode = str(rule.get("mode", "")).strip().lower()
+        if mode not in ("raise", "lower"):
+            raise ValueError(f"Неверный режим правила: {mode}")
+        normalized_rule = {
+            "label": label,
+            "start_mhz": start,
+            "end_mhz": end,
+            "mode": mode,
+        }
+        if mode == "raise":
+            if "target_db" not in rule:
+                raise ValueError(f"Для правила '{label}' нужен target_db")
+            normalized_rule["target_db"] = float(rule.get("target_db", 0.0))
+            normalized_rule["edge_extra_db"] = float(rule.get("edge_extra_db", 0.0))
+            normalized_rule["jitter_db"] = float(rule.get("jitter_db", 1.6))
+            if "cap_above_floor_db" in rule:
+                normalized_rule["cap_above_floor_db"] = float(
+                    rule.get("cap_above_floor_db")
+                )
+        normalized.append(normalized_rule)
+    return normalized
+
+
 def load_config(path: str | None) -> dict:
     config = deepcopy(DEFAULT_CONFIG)
     if not path:
@@ -159,6 +239,7 @@ def apply_config(config: dict) -> None:
     global NOISE_RIPPLE_DB
     global TRACE_GREEN_MIN
     global TRACE_GREEN_DELTA
+    global RANGE_RULES
     global SUBTRACT_OUTSIDE_DBM
     global RANDOM_SEED
     global RANDOM_VARIATION
@@ -189,6 +270,8 @@ def apply_config(config: dict) -> None:
     RANDOM_SEED = int(config["random_seed"])
     RANDOM_VARIATION = float(config["random_variation"])
     MARKERS = normalize_markers(config["markers"])
+    range_rules = config.get("range_rules", [])
+    RANGE_RULES = normalize_range_rules(range_rules) if range_rules else []
 
 
 def write_default_config(path: str) -> None:
@@ -406,6 +489,32 @@ def amplitude_at(freq: float, frequencies: list[int], amplitudes: list[float]) -
     return a0 + (a1 - a0) * t
 
 
+def rule_seed(rule: dict) -> int:
+    return int(rule["start_mhz"] * 10 + rule["end_mhz"] * 10) % 10000
+
+
+def band_raise_offset(freq: float, rule: dict) -> float:
+    left = rule["start_mhz"]
+    right = rule["end_mhz"]
+    width = right - left
+    t = (freq - left) / width if width else 0.0
+    edge = 0.5 - 0.5 * math.cos(math.pi * t)
+    offset = float(rule["target_db"]) + float(rule.get("edge_extra_db", 0.0)) * edge
+    offset += 1.1 * math.sin(freq * 0.2) + 0.7 * math.sin(freq * 0.53)
+    jitter_db = float(rule.get("jitter_db", 1.6))
+    offset += stable_jitter(freq, jitter_db, 11000 + rule_seed(rule)) * (
+        0.35 + 0.65 * edge
+    )
+    return offset
+
+
+def find_rule(freq: float) -> dict | None:
+    for rule in RANGE_RULES:
+        if rule["start_mhz"] <= freq <= rule["end_mhz"]:
+            return rule
+    return None
+
+
 def generate_series(
     image_path: Path, config: dict
 ) -> tuple[list[int], list[float], list[tuple[int, float, float]], dict]:
@@ -428,45 +537,85 @@ def generate_series(
         amplitude -= SUBTRACT_OUTSIDE_DBM
         base_amplitudes.append(amplitude)
 
-    floor_samples = [
-        amp
-        for freq, amp in zip(frequencies, base_amplitudes)
-        if not in_range(freq, UL_MAIN_RANGE_MHZ)
-        and not in_ranges(freq, UL_MID_RANGES_MHZ)
-        and not in_ranges(freq, DL_RANGES_MHZ)
-        and not in_ranges(freq, SUPPRESS_RANGES_MHZ)
-    ]
+    if RANGE_RULES:
+        active_ranges = tuple(
+            (rule["start_mhz"], rule["end_mhz"]) for rule in RANGE_RULES
+        )
+        floor_samples = [
+            amp
+            for freq, amp in zip(frequencies, base_amplitudes)
+            if not in_ranges(freq, active_ranges)
+            and not in_ranges(freq, SUPPRESS_RANGES_MHZ)
+        ]
+    else:
+        floor_samples = [
+            amp
+            for freq, amp in zip(frequencies, base_amplitudes)
+            if not in_range(freq, UL_MAIN_RANGE_MHZ)
+            and not in_ranges(freq, UL_MID_RANGES_MHZ)
+            and not in_ranges(freq, DL_RANGES_MHZ)
+            and not in_ranges(freq, SUPPRESS_RANGES_MHZ)
+        ]
     floor_level = median(floor_samples) if floor_samples else median(base_amplitudes)
 
     amplitudes: list[float] = []
     random.seed(RANDOM_SEED)
     for freq, base_amp in zip(frequencies, base_amplitudes):
-        if in_range(freq, UL_MAIN_RANGE_MHZ):
-            amplitude = floor_level + ul_main_offset(freq)
-        elif in_ranges(freq, UL_MID_RANGES_MHZ):
-            band = next(b for b in UL_MID_RANGES_MHZ if in_range(freq, b))
-            amplitude = floor_level + ul_mid_offset(freq, band)
-        elif in_ranges(freq, SUPPRESS_RANGES_MHZ):
+        if in_ranges(freq, SUPPRESS_RANGES_MHZ):
             amplitude = dl_floor_value(freq, floor_level)
-        elif in_ranges(freq, DL_RANGES_MHZ):
-            amplitude = dl_floor_value(freq, floor_level)
+        elif RANGE_RULES:
+            rule = find_rule(freq)
+            if rule:
+                if rule["mode"] == "raise":
+                    amplitude = floor_level + band_raise_offset(freq, rule)
+                else:
+                    amplitude = floor_level + noise_floor_variation(freq)
+            else:
+                amplitude = base_amp + noise_floor_variation(freq)
         else:
-            amplitude = base_amp + noise_floor_variation(freq)
+            if in_range(freq, UL_MAIN_RANGE_MHZ):
+                amplitude = floor_level + ul_main_offset(freq)
+            elif in_ranges(freq, UL_MID_RANGES_MHZ):
+                band = next(b for b in UL_MID_RANGES_MHZ if in_range(freq, b))
+                amplitude = floor_level + ul_mid_offset(freq, band)
+            elif in_ranges(freq, DL_RANGES_MHZ):
+                amplitude = dl_floor_value(freq, floor_level)
+            else:
+                amplitude = base_amp + noise_floor_variation(freq)
         amplitude *= 1.0 + random.uniform(-RANDOM_VARIATION, RANDOM_VARIATION)
         amplitudes.append(amplitude)
 
-    band_indices = [
-        idx
-        for idx, freq in enumerate(frequencies)
-        if in_range(freq, UL_MAIN_RANGE_MHZ)
-    ]
-    if band_indices:
-        band_max = max(amplitudes[idx] for idx in band_indices)
-        desired_max = floor_level + PEAK_MAX_ABOVE_FLOOR_DB
-        if band_max > desired_max:
-            delta = band_max - desired_max
-            for idx in band_indices:
-                amplitudes[idx] -= delta
+    if RANGE_RULES:
+        for rule in RANGE_RULES:
+            if rule["mode"] != "raise":
+                continue
+            indices = [
+                idx
+                for idx, freq in enumerate(frequencies)
+                if rule["start_mhz"] <= freq <= rule["end_mhz"]
+            ]
+            if not indices:
+                continue
+            band_max = max(amplitudes[idx] for idx in indices)
+            cap = float(rule.get("cap_above_floor_db", PEAK_MAX_ABOVE_FLOOR_DB))
+            desired_max = floor_level + cap
+            if band_max > desired_max:
+                delta = band_max - desired_max
+                for idx in indices:
+                    amplitudes[idx] -= delta
+    else:
+        band_indices = [
+            idx
+            for idx, freq in enumerate(frequencies)
+            if in_range(freq, UL_MAIN_RANGE_MHZ)
+        ]
+        if band_indices:
+            band_max = max(amplitudes[idx] for idx in band_indices)
+            desired_max = floor_level + PEAK_MAX_ABOVE_FLOOR_DB
+            if band_max > desired_max:
+                delta = band_max - desired_max
+                for idx in band_indices:
+                    amplitudes[idx] -= delta
 
     marker_values = []
     for marker_id, marker_freq in MARKERS:
