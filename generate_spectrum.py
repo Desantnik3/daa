@@ -30,6 +30,7 @@ PEAK_SAMPLE_RANGE_MHZ = (2620, 2690)
 UL_MID_RANGES_MHZ = ((1710, 1785), (1920, 1980))
 UL_MAIN_RANGE_MHZ = (2500, 2570)
 DL_RANGES_MHZ = ((1805, 1880), (2110, 2170), (2620, 2690))
+SUPPRESS_RANGES_MHZ = ((2090, 2230), (2600, 2730))
 PEAK_MAX_ABOVE_FLOOR_DB = 75.0
 
 SUBTRACT_OUTSIDE_DBM = 20.0
@@ -239,6 +240,7 @@ def main() -> None:
         if not in_range(freq, UL_MAIN_RANGE_MHZ)
         and not in_ranges(freq, UL_MID_RANGES_MHZ)
         and not in_ranges(freq, DL_RANGES_MHZ)
+        and not in_ranges(freq, SUPPRESS_RANGES_MHZ)
     ]
     floor_level = median(floor_samples) if floor_samples else median(base_amplitudes)
 
@@ -250,6 +252,8 @@ def main() -> None:
         elif in_ranges(freq, UL_MID_RANGES_MHZ):
             band = next(b for b in UL_MID_RANGES_MHZ if in_range(freq, b))
             amplitude = floor_level + ul_mid_offset(freq, band)
+        elif in_ranges(freq, SUPPRESS_RANGES_MHZ):
+            amplitude = dl_floor_value(freq, floor_level)
         elif in_ranges(freq, DL_RANGES_MHZ):
             amplitude = dl_floor_value(freq, floor_level)
         else:
