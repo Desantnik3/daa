@@ -12,7 +12,7 @@ from statistics import median
 from PIL import Image
 
 try:
-    import matplotlib.pyplot as plt
+    from matplotlib.figure import Figure
 except Exception as exc:  # pragma: no cover - optional runtime dependency
     raise SystemExit("matplotlib is required to run this script") from exc
 
@@ -406,21 +406,14 @@ def amplitude_at(freq: float, frequencies: list[int], amplitudes: list[float]) -
     return a0 + (a1 - a0) * t
 
 
-def generate_outputs(
-    image_path: Path,
-    output_csv: Path | None,
-    output_png: Path,
-    config: dict,
-) -> None:
+def generate_series(
+    image_path: Path, config: dict
+) -> tuple[list[int], list[float], list[tuple[int, float, float]], dict]:
     apply_config(config)
     plot_config = config["plot"]
 
     if not image_path.exists():
         raise FileNotFoundError(f"Не найден файл изображения: {image_path}")
-
-    if output_csv is not None:
-        output_csv.parent.mkdir(parents=True, exist_ok=True)
-    output_png.parent.mkdir(parents=True, exist_ok=True)
 
     image = Image.open(image_path)
     y_by_x, x_min, x_max = extract_trace_y(image)
@@ -475,24 +468,25 @@ def generate_outputs(
             for idx in band_indices:
                 amplitudes[idx] -= delta
 
-    if output_csv is not None:
-        with output_csv.open("w", newline="", encoding="utf-8") as handle:
-            writer = csv.writer(handle)
-            writer.writerow(["Frequency_MHz", "Amplitude_dBm"])
-            for freq, amp in zip(frequencies, amplitudes):
-                writer.writerow([freq, f"{amp:.3f}"])
-
     marker_values = []
     for marker_id, marker_freq in MARKERS:
         marker_amp = amplitude_at(marker_freq, frequencies, amplitudes)
         marker_values.append((marker_id, marker_freq, marker_amp))
 
-    fig, (ax, ax_text) = plt.subplots(
-        2,
-        1,
+    return frequencies, amplitudes, marker_values, plot_config
+
+
+def create_plot(
+    frequencies: list[int],
+    amplitudes: list[float],
+    marker_values: list[tuple[int, float, float]],
+    plot_config: dict,
+) -> Figure:
+    fig = Figure(
         figsize=tuple(plot_config.get("figure_size", [10, 4.8])),
-        gridspec_kw={"height_ratios": [4, 1]},
+        dpi=int(plot_config.get("dpi", 150)),
     )
+    ax, ax_text = fig.subplots(2, 1, gridspec_kw={"height_ratios": [4, 1]})
     ax.plot(frequencies, amplitudes)
     marker_color = plot_config.get("marker_color", "black")
     marker_size = plot_config.get("marker_size", 4)
@@ -558,6 +552,31 @@ def generate_outputs(
         )
 
     fig.tight_layout()
+    return fig
+
+
+def generate_outputs(
+    image_path: Path,
+    output_csv: Path | None,
+    output_png: Path,
+    config: dict,
+) -> None:
+    frequencies, amplitudes, marker_values, plot_config = generate_series(
+        image_path, config
+    )
+
+    if output_csv is not None:
+        output_csv.parent.mkdir(parents=True, exist_ok=True)
+    output_png.parent.mkdir(parents=True, exist_ok=True)
+
+    if output_csv is not None:
+        with output_csv.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(["Frequency_MHz", "Amplitude_dBm"])
+            for freq, amp in zip(frequencies, amplitudes):
+                writer.writerow([freq, f"{amp:.3f}"])
+
+    fig = create_plot(frequencies, amplitudes, marker_values, plot_config)
     fig.savefig(output_png, dpi=int(plot_config.get("dpi", 150)))
 
     if output_csv is not None:

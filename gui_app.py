@@ -8,6 +8,7 @@ import tkinter as tk
 from tkinter import ttk
 
 import generate_spectrum as gen
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -169,6 +170,9 @@ class SpectrumApp:
         self.log_menu: tk.Menu | None = None
         self.csv_entry: ttk.Entry | None = None
         self.csv_browse_button: ttk.Button | None = None
+        self.preview_frame: ttk.Frame | None = None
+        self.preview_placeholder: ttk.Label | None = None
+        self.preview_canvas: FigureCanvasTkAgg | None = None
 
         self._build_ui()
         self.populate_from_config(self.config)
@@ -229,16 +233,19 @@ class SpectrumApp:
         ranges_tab = ttk.Frame(notebook)
         levels_tab = ttk.Frame(notebook)
         markers_tab = ttk.Frame(notebook)
+        preview_tab = ttk.Frame(notebook)
 
         notebook.add(files_tab, text="Файлы")
         notebook.add(ranges_tab, text="Диапазоны")
         notebook.add(levels_tab, text="Уровни")
         notebook.add(markers_tab, text="Маркеры")
+        notebook.add(preview_tab, text="Просмотр")
 
         self._build_files_tab(files_tab)
         self._build_ranges_tab(ranges_tab)
         self._build_levels_tab(levels_tab)
         self._build_markers_tab(markers_tab)
+        self._build_preview_tab(preview_tab)
 
         actions = ttk.Frame(self.root)
         actions.pack(fill="x", padx=10, pady=(0, 8))
@@ -260,6 +267,14 @@ class SpectrumApp:
         generate_button.pack(side="right")
         self._add_tooltip(
             generate_button, "Построить спектр и сохранить CSV/PNG."
+        )
+
+        preview_button = ttk.Button(
+            actions, text="Предпросмотр", command=self.on_preview
+        )
+        preview_button.pack(side="right", padx=(0, 8))
+        self._add_tooltip(
+            preview_button, "Показать график в приложении (без сохранения)."
         )
 
         log_frame = ttk.LabelFrame(self.root, text="Журнал")
@@ -562,6 +577,17 @@ class SpectrumApp:
             self.markers_text, "Каждая строка: id, частота в МГц."
         )
 
+    def _build_preview_tab(self, parent: ttk.Frame) -> None:
+        self.preview_frame = ttk.Frame(parent)
+        self.preview_frame.pack(fill="both", expand=True, padx=6, pady=6)
+        self.preview_placeholder = ttk.Label(
+            self.preview_frame,
+            text="Нажмите «Предпросмотр», чтобы увидеть график.",
+            anchor="center",
+            justify="center",
+        )
+        self.preview_placeholder.pack(fill="both", expand=True)
+
     def _add_tooltip(self, widget: tk.Widget, text: str) -> None:
         self.tooltips.append(ToolTip(widget, text))
 
@@ -735,6 +761,45 @@ class SpectrumApp:
         else:
             self.log(f"Создан файл: {output_png_obj}")
             messagebox.showinfo("Готово", "График успешно создан.")
+
+    def on_preview(self) -> None:
+        try:
+            config = self.build_config()
+        except Exception as exc:
+            messagebox.showerror("Ошибка конфигурации", str(exc))
+            return
+
+        image_path = self.image_path_var.get().strip()
+        if not image_path:
+            messagebox.showerror("Ошибка предпросмотра", "Укажите путь к изображению.")
+            return
+
+        image_path_obj = Path(image_path).expanduser()
+        try:
+            frequencies, amplitudes, marker_values, plot_config = gen.generate_series(
+                image_path_obj, config
+            )
+            fig = gen.create_plot(
+                frequencies, amplitudes, marker_values, plot_config
+            )
+        except Exception as exc:
+            self.log(str(exc))
+            messagebox.showerror("Ошибка предпросмотра", str(exc))
+            return
+
+        if self.preview_canvas:
+            self.preview_canvas.get_tk_widget().destroy()
+            self.preview_canvas = None
+        if self.preview_placeholder:
+            self.preview_placeholder.destroy()
+            self.preview_placeholder = None
+
+        if not self.preview_frame:
+            return
+        self.preview_canvas = FigureCanvasTkAgg(fig, master=self.preview_frame)
+        self.preview_canvas.draw()
+        self.preview_canvas.get_tk_widget().pack(fill="both", expand=True)
+        self.log("Предпросмотр обновлён.")
 
     def populate_from_config(self, config: dict) -> None:
         self.config = deepcopy(config)
