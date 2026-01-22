@@ -489,6 +489,19 @@ def amplitude_at(freq: float, frequencies: list[int], amplitudes: list[float]) -
     return a0 + (a1 - a0) * t
 
 
+def build_frequencies(start: int, stop: int, step: int) -> list[int]:
+    if step <= 0:
+        raise ValueError("Шаг частоты должен быть больше нуля.")
+    if start > stop:
+        raise ValueError("Начальная частота должна быть меньше конечной.")
+    freqs = list(range(start, stop + 1, step))
+    if not freqs:
+        freqs = [start]
+    if freqs[-1] != stop:
+        freqs.append(stop)
+    return freqs
+
+
 def rule_seed(rule: dict) -> int:
     return int(rule["start_mhz"] * 10 + rule["end_mhz"] * 10) % 10000
 
@@ -528,7 +541,7 @@ def generate_series(
     y_by_x, x_min, x_max = extract_trace_y(image)
     slope, intercept = estimate_scale(y_by_x, x_min, x_max)
 
-    frequencies = list(range(FREQ_START_MHZ, FREQ_STOP_MHZ + 1, FREQ_STEP_MHZ))
+    frequencies = build_frequencies(FREQ_START_MHZ, FREQ_STOP_MHZ, FREQ_STEP_MHZ)
     base_amplitudes: list[float] = []
     for freq in frequencies:
         x = freq_to_x(freq, x_min, x_max)
@@ -662,6 +675,9 @@ def create_plot(
     ax.set_xlabel("Frequency (MHz)")
     ax.set_ylabel("Amplitude (dBm)")
     ax.grid(bool(plot_config.get("grid", True)))
+    if frequencies:
+        ax.set_xlim(frequencies[0], frequencies[-1])
+        ax.margins(x=0)
 
     ax_text.axis("off")
     if marker_values:
