@@ -32,6 +32,10 @@ UL_MAIN_RANGE_MHZ = (2500, 2570)
 DL_RANGES_MHZ = ((1805, 1880), (2110, 2170), (2620, 2690))
 SUPPRESS_RANGES_MHZ = ((2090, 2230), (2600, 2730))
 PEAK_MAX_ABOVE_FLOOR_DB = 75.0
+UL_MAIN_BASE_OFFSET_DB = 70.0
+UL_MAIN_EDGE_EXTRA_DB = 5.0
+UL_MID_EDGE_EXTRA_DB = 4.0
+UL_MID_DIFF_RANGE_DB = (3.0, 5.0)
 
 SUBTRACT_OUTSIDE_DBM = 20.0
 RANDOM_SEED = 20260121
@@ -177,10 +181,16 @@ def ul_main_offset(freq: float) -> float:
     width = right - left
     t = (freq - left) / width
     edge = 0.5 - 0.5 * math.cos(math.pi * t)
-    offset = 70.0 + 5.0 * edge
+    offset = UL_MAIN_BASE_OFFSET_DB + UL_MAIN_EDGE_EXTRA_DB * edge
     offset += 1.4 * math.sin(freq * 0.15) + 0.9 * math.sin(freq * 0.47)
     offset += stable_jitter(freq, 2.0, 9001) * (0.3 + 0.7 * edge)
     return offset
+
+
+def ul_mid_delta(band: tuple[float, float]) -> float:
+    seed = RANDOM_SEED + int(band[0] * 10)
+    rng = random.Random(seed)
+    return rng.uniform(*UL_MID_DIFF_RANGE_DB)
 
 
 def ul_mid_offset(freq: float, band: tuple[float, float]) -> float:
@@ -188,9 +198,10 @@ def ul_mid_offset(freq: float, band: tuple[float, float]) -> float:
     width = right - left
     t = (freq - left) / width
     edge = 0.5 - 0.5 * math.cos(math.pi * t)
-    offset = 18.0 + 6.0 * edge
-    offset += 0.9 * math.sin(freq * 0.2) + 0.5 * math.sin(freq * 0.53)
-    offset += stable_jitter(freq, 1.2, 7001) * (0.4 + 0.6 * edge)
+    delta = ul_mid_delta(band)
+    offset = (UL_MAIN_BASE_OFFSET_DB - delta) + UL_MID_EDGE_EXTRA_DB * edge
+    offset += 1.1 * math.sin(freq * 0.2) + 0.7 * math.sin(freq * 0.53)
+    offset += stable_jitter(freq, 1.6, 7001) * (0.35 + 0.65 * edge)
     return offset
 
 
