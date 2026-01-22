@@ -178,6 +178,42 @@ class SpectrumApp:
     def default_output_dir(self) -> Path:
         return Path.home() / "SpectrumGenerator"
 
+    def _initial_dir_and_file(self, value: str) -> tuple[str, str]:
+        fallback = self.default_output_dir()
+        if not fallback.exists():
+            fallback = Path.home()
+        if not value:
+            return str(fallback), ""
+        path = Path(value).expanduser()
+        if path.is_dir():
+            return str(path), ""
+        parent = path.parent if path.parent.exists() else fallback
+        return str(parent), path.name
+
+    def _ensure_unique_single(self, path: Path) -> Path:
+        if not path.exists():
+            return path
+        for idx in range(1, 1000):
+            candidate = path.with_name(f"{path.stem}_{idx}{path.suffix}")
+            if not candidate.exists():
+                return candidate
+        raise RuntimeError(f"Не удалось подобрать имя для {path}")
+
+    def _ensure_unique_outputs(self, csv_path: Path, png_path: Path) -> tuple[Path, Path]:
+        if csv_path.parent == png_path.parent and csv_path.stem == png_path.stem:
+            if not csv_path.exists() and not png_path.exists():
+                return csv_path, png_path
+            for idx in range(1, 1000):
+                csv_candidate = csv_path.with_name(
+                    f"{csv_path.stem}_{idx}{csv_path.suffix}"
+                )
+                png_candidate = png_path.with_name(
+                    f"{png_path.stem}_{idx}{png_path.suffix}"
+                )
+                if not csv_candidate.exists() and not png_candidate.exists():
+                    return csv_candidate, png_candidate
+        return self._ensure_unique_single(csv_path), self._ensure_unique_single(png_path)
+
     def _build_ui(self) -> None:
         notebook = ttk.Notebook(self.root)
         notebook.pack(fill="both", expand=True, padx=10, pady=10)
@@ -210,6 +246,10 @@ class SpectrumApp:
         )
         save_button.pack(side="left", padx=(8, 0))
         self._add_tooltip(save_button, "Сохранить текущие параметры в JSON.")
+
+        copy_button = ttk.Button(actions, text="Копировать лог", command=self.on_copy_log)
+        copy_button.pack(side="left", padx=(8, 0))
+        self._add_tooltip(copy_button, "Скопировать весь лог в буфер обмена.")
 
         generate_button = ttk.Button(
             actions, text="Сгенерировать", command=self.on_generate
@@ -516,31 +556,57 @@ class SpectrumApp:
         self.log_text.insert("end", message + "\n")
         self.log_text.see("end")
 
+    def on_copy_log(self) -> None:
+        if not self.log_text:
+            return
+        content = self.log_text.get("1.0", "end").strip()
+        if not content:
+            messagebox.showinfo("Лог", "Лог пуст.")
+            return
+        self.root.clipboard_clear()
+        self.root.clipboard_append(content)
+        self.log("Лог скопирован в буфер обмена.")
+
     def browse_image(self) -> None:
+        initial_dir, initial_file = self._initial_dir_and_file(
+            self.image_path_var.get().strip()
+        )
         path = filedialog.askopenfilename(
             title="Выберите изображение",
             filetypes=[
                 ("Изображения", "*.png *.jpg *.jpeg *.webp *.gif"),
                 ("Все файлы", "*"),
             ],
+            initialdir=initial_dir,
+            initialfile=initial_file,
         )
         if path:
             self.image_path_var.set(path)
 
     def browse_output_csv(self) -> None:
+        initial_dir, initial_file = self._initial_dir_and_file(
+            self.output_csv_var.get().strip()
+        )
         path = filedialog.asksaveasfilename(
             title="Выберите CSV для сохранения",
             defaultextension=".csv",
             filetypes=[("CSV", "*.csv"), ("Все файлы", "*")],
+            initialdir=initial_dir,
+            initialfile=initial_file or "spectrum.csv",
         )
         if path:
             self.output_csv_var.set(path)
 
     def browse_output_png(self) -> None:
+        initial_dir, initial_file = self._initial_dir_and_file(
+            self.output_png_var.get().strip()
+        )
         path = filedialog.asksaveasfilename(
             title="Выберите PNG для сохранения",
             defaultextension=".png",
             filetypes=[("PNG", "*.png"), ("Все файлы", "*")],
+            initialdir=initial_dir,
+            initialfile=initial_file or "spectrum.png",
         )
         if path:
             self.output_png_var.set(path)
@@ -593,6 +659,15 @@ class SpectrumApp:
         image_path_obj = Path(image_path).expanduser()
         output_csv_obj = Path(output_csv).expanduser()
         output_png_obj = Path(output_png).expanduser()
+        output_csv_obj, output_png_obj = self._ensure_unique_outputs(
+            output_csv_obj, output_png_obj
+        )
+        if str(output_csv_obj) != output_csv or str(output_png_obj) != output_png:
+            self.log("Имена заняты, новые файлы сохранены как:")
+            self.log(f"  CSV: {output_csv_obj}")
+            self.log(f"  PNG: {output_png_obj}")
+            self.output_csv_var.set(str(output_csv_obj))
+            self.output_png_var.set(str(output_png_obj))
 
         try:
             gen.generate_outputs(
