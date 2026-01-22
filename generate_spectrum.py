@@ -41,6 +41,8 @@ UL_MID_EDGE_EXTRA_DB = 4.0
 UL_MID_DIFF_RANGE_DB = (3.0, 5.0)
 NOISE_JITTER_DB = 2.8
 NOISE_RIPPLE_DB = 0.8
+TRACE_GREEN_MIN = 80
+TRACE_GREEN_DELTA = 30
 
 SUBTRACT_OUTSIDE_DBM = 20.0
 RANDOM_SEED = 20260121
@@ -78,6 +80,8 @@ DEFAULT_CONFIG = {
     "ul_mid_diff_range_db": list(UL_MID_DIFF_RANGE_DB),
     "noise_jitter_db": NOISE_JITTER_DB,
     "noise_ripple_db": NOISE_RIPPLE_DB,
+    "trace_green_min": TRACE_GREEN_MIN,
+    "trace_green_delta": TRACE_GREEN_DELTA,
     "subtract_outside_dbm": SUBTRACT_OUTSIDE_DBM,
     "random_seed": RANDOM_SEED,
     "random_variation": RANDOM_VARIATION,
@@ -153,6 +157,8 @@ def apply_config(config: dict) -> None:
     global UL_MID_DIFF_RANGE_DB
     global NOISE_JITTER_DB
     global NOISE_RIPPLE_DB
+    global TRACE_GREEN_MIN
+    global TRACE_GREEN_DELTA
     global SUBTRACT_OUTSIDE_DBM
     global RANDOM_SEED
     global RANDOM_VARIATION
@@ -177,6 +183,8 @@ def apply_config(config: dict) -> None:
     UL_MID_DIFF_RANGE_DB = tuple(float(v) for v in config["ul_mid_diff_range_db"])
     NOISE_JITTER_DB = float(config["noise_jitter_db"])
     NOISE_RIPPLE_DB = float(config["noise_ripple_db"])
+    TRACE_GREEN_MIN = int(config["trace_green_min"])
+    TRACE_GREEN_DELTA = int(config["trace_green_delta"])
     SUBTRACT_OUTSIDE_DBM = float(config["subtract_outside_dbm"])
     RANDOM_SEED = int(config["random_seed"])
     RANDOM_VARIATION = float(config["random_variation"])
@@ -215,7 +223,11 @@ def parse_args() -> argparse.Namespace:
 
 
 def is_trace_pixel(r: int, g: int, b: int) -> bool:
-    return g > r + 30 and g > b + 30 and g > 80
+    return (
+        g > r + TRACE_GREEN_DELTA
+        and g > b + TRACE_GREEN_DELTA
+        and g > TRACE_GREEN_MIN
+    )
 
 
 def extract_trace_y(image: Image.Image) -> tuple[dict[int, int], int, int]:

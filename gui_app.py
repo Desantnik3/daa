@@ -155,6 +155,8 @@ class SpectrumApp:
         self.ul_mid_diff_max_var = tk.StringVar()
         self.noise_jitter_var = tk.StringVar()
         self.noise_ripple_var = tk.StringVar()
+        self.trace_green_min_var = tk.StringVar()
+        self.trace_green_delta_var = tk.StringVar()
         self.random_seed_var = tk.StringVar()
         self.random_variation_var = tk.StringVar()
 
@@ -444,9 +446,26 @@ class SpectrumApp:
 
         self._add_level_entry(
             parent,
+            "Мин. зелёный (0-255)",
+            self.trace_green_min_var,
+            7,
+            0,
+            "Порог яркости зелёного для поиска трассы.",
+        )
+        self._add_level_entry(
+            parent,
+            "Преобладание зелёного",
+            self.trace_green_delta_var,
+            7,
+            2,
+            "Насколько зелёный должен быть выше красного/синего.",
+        )
+
+        self._add_level_entry(
+            parent,
             "Сид случайности",
             self.random_seed_var,
-            7,
+            8,
             0,
             "Фиксирует повторяемость результата.",
         )
@@ -454,7 +473,7 @@ class SpectrumApp:
             parent,
             "Случайная вариация",
             self.random_variation_var,
-            7,
+            8,
             2,
             "Относительная вариация значений (например 0.02 = 2%).",
         )
@@ -624,6 +643,8 @@ class SpectrumApp:
         self.ul_mid_diff_max_var.set(str(config["ul_mid_diff_range_db"][1]))
         self.noise_jitter_var.set(str(config["noise_jitter_db"]))
         self.noise_ripple_var.set(str(config["noise_ripple_db"]))
+        self.trace_green_min_var.set(str(config.get("trace_green_min", 80)))
+        self.trace_green_delta_var.set(str(config.get("trace_green_delta", 30)))
         self.random_seed_var.set(str(config["random_seed"]))
         self.random_variation_var.set(str(config["random_variation"]))
 
@@ -676,6 +697,8 @@ class SpectrumApp:
         ]
         config["noise_jitter_db"] = float(self.noise_jitter_var.get())
         config["noise_ripple_db"] = float(self.noise_ripple_var.get())
+        config["trace_green_min"] = int(self.trace_green_min_var.get())
+        config["trace_green_delta"] = int(self.trace_green_delta_var.get())
         config["random_seed"] = int(self.random_seed_var.get())
         config["random_variation"] = float(self.random_variation_var.get())
 

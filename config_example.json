@@ -31,6 +31,8 @@
   "ul_mid_diff_range_db": [3.0, 5.0],
   "noise_jitter_db": 2.8,
   "noise_ripple_db": 0.8,
+  "trace_green_min": 80,
+  "trace_green_delta": 30,
   "subtract_outside_dbm": 20.0,
   "random_seed": 20260121,
   "random_variation": 0.02,
