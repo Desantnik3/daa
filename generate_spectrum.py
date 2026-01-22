@@ -26,7 +26,10 @@ BASELINE_DBM = -50.0
 MID_PEAK_DBM = -34.0
 PEAK_DBM = 10.0
 MID_PEAK_RANGES_MHZ = ((1800, 1860), (2080, 2140))
-PEAK_RANGE_MHZ = (2620, 2690)
+PEAK_SAMPLE_RANGE_MHZ = (2620, 2690)
+UL_MID_RANGES_MHZ = ((1710, 1785), (1920, 1980))
+UL_MAIN_RANGE_MHZ = (2500, 2570)
+DL_RANGES_MHZ = ((1805, 1880), (2110, 2170), (2620, 2690))
 PEAK_MAX_ABOVE_FLOOR_DB = 75.0
 
 SUBTRACT_OUTSIDE_DBM = 20.0
@@ -124,7 +127,7 @@ def estimate_scale(y_by_x: dict[int, int], x_min: int, x_max: int) -> tuple[floa
     peak_samples: list[int] = []
     for x, y in y_by_x.items():
         freq = x_to_freq(x, x_min, x_max)
-        if PEAK_RANGE_MHZ[0] <= freq <= PEAK_RANGE_MHZ[1]:
+        if PEAK_SAMPLE_RANGE_MHZ[0] <= freq <= PEAK_SAMPLE_RANGE_MHZ[1]:
             peak_samples.append(y)
         elif any(start <= freq <= end for start, end in MID_PEAK_RANGES_MHZ):
             mid_samples.append(y)
@@ -155,18 +158,43 @@ def estimate_scale(y_by_x: dict[int, int], x_min: int, x_max: int) -> tuple[floa
     return slope, intercept
 
 
-def band_shape(freq: float) -> float:
-    left, right = PEAK_RANGE_MHZ
+def in_ranges(freq: float, ranges: tuple[tuple[float, float], ...]) -> bool:
+    return any(start <= freq <= end for start, end in ranges)
+
+
+def in_range(freq: float, band: tuple[float, float]) -> bool:
+    return band[0] <= freq <= band[1]
+
+
+def stable_jitter(freq: float, scale: float, seed_offset: int) -> float:
+    rng = random.Random(RANDOM_SEED + seed_offset + int(freq * 10))
+    return rng.uniform(-scale, scale)
+
+
+def ul_main_offset(freq: float) -> float:
+    left, right = UL_MAIN_RANGE_MHZ
     width = right - left
     t = (freq - left) / width
     edge = 0.5 - 0.5 * math.cos(math.pi * t)
-    amplitude = 12.0 + 3.5 * edge
-    amplitude += 1.2 * math.sin(freq * 0.15) + 0.7 * math.sin(freq * 0.47)
-    amplitude += 0.6 * (t - 0.5)
-    rng = random.Random(RANDOM_SEED + int(freq * 10))
-    jagged = rng.uniform(-1.6, 1.6)
-    amplitude += jagged * (0.3 + 0.7 * edge)
-    return amplitude
+    offset = 70.0 + 5.0 * edge
+    offset += 1.4 * math.sin(freq * 0.15) + 0.9 * math.sin(freq * 0.47)
+    offset += stable_jitter(freq, 2.0, 9001) * (0.3 + 0.7 * edge)
+    return offset
+
+
+def ul_mid_offset(freq: float, band: tuple[float, float]) -> float:
+    left, right = band
+    width = right - left
+    t = (freq - left) / width
+    edge = 0.5 - 0.5 * math.cos(math.pi * t)
+    offset = 18.0 + 6.0 * edge
+    offset += 0.9 * math.sin(freq * 0.2) + 0.5 * math.sin(freq * 0.53)
+    offset += stable_jitter(freq, 1.2, 7001) * (0.4 + 0.6 * edge)
+    return offset
+
+
+def dl_floor_value(freq: float, floor: float) -> float:
+    return floor + stable_jitter(freq, 1.2, 5001)
 
 
 def amplitude_at(freq: float, frequencies: list[int], amplitudes: list[float]) -> float:
@@ -197,32 +225,44 @@ def main() -> None:
     slope, intercept = estimate_scale(y_by_x, x_min, x_max)
 
     frequencies = list(range(FREQ_START_MHZ, FREQ_STOP_MHZ + 1, FREQ_STEP_MHZ))
-    amplitudes: list[float] = []
-
-    random.seed(RANDOM_SEED)
+    base_amplitudes: list[float] = []
     for freq in frequencies:
         x = freq_to_x(freq, x_min, x_max)
         y = y_by_x.get(x, y_by_x[min(y_by_x, key=lambda k: abs(k - x))])
-        if PEAK_RANGE_MHZ[0] <= freq <= PEAK_RANGE_MHZ[1]:
-            amplitude = band_shape(freq)
+        amplitude = slope * y + intercept
+        amplitude -= SUBTRACT_OUTSIDE_DBM
+        base_amplitudes.append(amplitude)
+
+    floor_samples = [
+        amp
+        for freq, amp in zip(frequencies, base_amplitudes)
+        if not in_range(freq, UL_MAIN_RANGE_MHZ)
+        and not in_ranges(freq, UL_MID_RANGES_MHZ)
+        and not in_ranges(freq, DL_RANGES_MHZ)
+    ]
+    floor_level = median(floor_samples) if floor_samples else median(base_amplitudes)
+
+    amplitudes: list[float] = []
+    random.seed(RANDOM_SEED)
+    for freq, base_amp in zip(frequencies, base_amplitudes):
+        if in_range(freq, UL_MAIN_RANGE_MHZ):
+            amplitude = floor_level + ul_main_offset(freq)
+        elif in_ranges(freq, UL_MID_RANGES_MHZ):
+            band = next(b for b in UL_MID_RANGES_MHZ if in_range(freq, b))
+            amplitude = floor_level + ul_mid_offset(freq, band)
+        elif in_ranges(freq, DL_RANGES_MHZ):
+            amplitude = dl_floor_value(freq, floor_level)
         else:
-            amplitude = slope * y + intercept
-            amplitude -= SUBTRACT_OUTSIDE_DBM
+            amplitude = base_amp
         amplitude *= 1.0 + random.uniform(-RANDOM_VARIATION, RANDOM_VARIATION)
         amplitudes.append(amplitude)
 
     band_indices = [
         idx
         for idx, freq in enumerate(frequencies)
-        if PEAK_RANGE_MHZ[0] <= freq <= PEAK_RANGE_MHZ[1]
+        if in_range(freq, UL_MAIN_RANGE_MHZ)
     ]
-    outside_amplitudes = [
-        amp
-        for freq, amp in zip(frequencies, amplitudes)
-        if not (PEAK_RANGE_MHZ[0] <= freq <= PEAK_RANGE_MHZ[1])
-    ]
-    if band_indices and outside_amplitudes:
-        floor_level = median(outside_amplitudes)
+    if band_indices:
         band_max = max(amplitudes[idx] for idx in band_indices)
         desired_max = floor_level + PEAK_MAX_ABOVE_FLOOR_DB
         if band_max > desired_max:
