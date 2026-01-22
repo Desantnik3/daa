@@ -36,6 +36,8 @@ UL_MAIN_BASE_OFFSET_DB = 70.0
 UL_MAIN_EDGE_EXTRA_DB = 5.0
 UL_MID_EDGE_EXTRA_DB = 4.0
 UL_MID_DIFF_RANGE_DB = (3.0, 5.0)
+NOISE_JITTER_DB = 2.8
+NOISE_RIPPLE_DB = 0.8
 
 SUBTRACT_OUTSIDE_DBM = 20.0
 RANDOM_SEED = 20260121
@@ -209,6 +211,12 @@ def dl_floor_value(freq: float, floor: float) -> float:
     return floor + stable_jitter(freq, 1.2, 5001)
 
 
+def noise_floor_variation(freq: float) -> float:
+    jitter = stable_jitter(freq, NOISE_JITTER_DB, 3001)
+    ripple = NOISE_RIPPLE_DB * math.sin(freq * 0.12) + 0.5 * math.sin(freq * 0.37 + 1.3)
+    return jitter + ripple
+
+
 def amplitude_at(freq: float, frequencies: list[int], amplitudes: list[float]) -> float:
     lookup = dict(zip(frequencies, amplitudes))
     if freq in lookup:
@@ -268,7 +276,7 @@ def main() -> None:
         elif in_ranges(freq, DL_RANGES_MHZ):
             amplitude = dl_floor_value(freq, floor_level)
         else:
-            amplitude = base_amp
+            amplitude = base_amp + noise_floor_variation(freq)
         amplitude *= 1.0 + random.uniform(-RANDOM_VARIATION, RANDOM_VARIATION)
         amplitudes.append(amplitude)
 
