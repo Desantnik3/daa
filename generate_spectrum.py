@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import argparse
 import csv
+import json
 import math
 import random
+from copy import deepcopy
 from pathlib import Path
 from statistics import median
 
@@ -54,6 +57,161 @@ MARKERS = [
     (8, 2660.0),
     (9, 2712.6),
 ]
+
+DEFAULT_CONFIG = {
+    "freq_start_mhz": FREQ_START_MHZ,
+    "freq_stop_mhz": FREQ_STOP_MHZ,
+    "freq_step_mhz": FREQ_STEP_MHZ,
+    "baseline_dbm": BASELINE_DBM,
+    "mid_peak_dbm": MID_PEAK_DBM,
+    "peak_dbm": PEAK_DBM,
+    "mid_peak_ranges_mhz": [list(r) for r in MID_PEAK_RANGES_MHZ],
+    "peak_sample_range_mhz": list(PEAK_SAMPLE_RANGE_MHZ),
+    "ul_mid_ranges_mhz": [list(r) for r in UL_MID_RANGES_MHZ],
+    "ul_main_range_mhz": list(UL_MAIN_RANGE_MHZ),
+    "dl_ranges_mhz": [list(r) for r in DL_RANGES_MHZ],
+    "suppress_ranges_mhz": [list(r) for r in SUPPRESS_RANGES_MHZ],
+    "peak_max_above_floor_db": PEAK_MAX_ABOVE_FLOOR_DB,
+    "ul_main_base_offset_db": UL_MAIN_BASE_OFFSET_DB,
+    "ul_main_edge_extra_db": UL_MAIN_EDGE_EXTRA_DB,
+    "ul_mid_edge_extra_db": UL_MID_EDGE_EXTRA_DB,
+    "ul_mid_diff_range_db": list(UL_MID_DIFF_RANGE_DB),
+    "noise_jitter_db": NOISE_JITTER_DB,
+    "noise_ripple_db": NOISE_RIPPLE_DB,
+    "subtract_outside_dbm": SUBTRACT_OUTSIDE_DBM,
+    "random_seed": RANDOM_SEED,
+    "random_variation": RANDOM_VARIATION,
+    "markers": [
+        {"id": marker_id, "freq_mhz": freq} for marker_id, freq in MARKERS
+    ],
+    "plot": {
+        "figure_size": [10, 4.8],
+        "dpi": 150,
+        "marker_color": "black",
+        "marker_size": 4,
+        "marker_label_size": 7,
+        "footer_column_width": 42,
+        "footer_font_size": 8,
+        "footer_columns": 3,
+        "grid": True,
+    },
+}
+
+
+def normalize_range(band: list[float] | tuple[float, float]) -> tuple[float, float]:
+    return (float(band[0]), float(band[1]))
+
+
+def normalize_ranges(ranges: list[list[float]]) -> tuple[tuple[float, float], ...]:
+    return tuple(normalize_range(band) for band in ranges)
+
+
+def normalize_markers(markers: list[object]) -> list[tuple[int, float]]:
+    normalized: list[tuple[int, float]] = []
+    for item in markers:
+        if isinstance(item, dict):
+            marker_id = int(item.get("id", 0))
+            freq = float(item.get("freq_mhz", 0.0))
+        else:
+            marker_id, freq = item
+            marker_id = int(marker_id)
+            freq = float(freq)
+        normalized.append((marker_id, freq))
+    return normalized
+
+
+def load_config(path: str | None) -> dict:
+    config = deepcopy(DEFAULT_CONFIG)
+    if not path:
+        return config
+
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    plot_data = data.pop("plot", None)
+    config.update(data)
+    if plot_data:
+        config["plot"].update(plot_data)
+    return config
+
+
+def apply_config(config: dict) -> None:
+    global FREQ_START_MHZ
+    global FREQ_STOP_MHZ
+    global FREQ_STEP_MHZ
+    global BASELINE_DBM
+    global MID_PEAK_DBM
+    global PEAK_DBM
+    global MID_PEAK_RANGES_MHZ
+    global PEAK_SAMPLE_RANGE_MHZ
+    global UL_MID_RANGES_MHZ
+    global UL_MAIN_RANGE_MHZ
+    global DL_RANGES_MHZ
+    global SUPPRESS_RANGES_MHZ
+    global PEAK_MAX_ABOVE_FLOOR_DB
+    global UL_MAIN_BASE_OFFSET_DB
+    global UL_MAIN_EDGE_EXTRA_DB
+    global UL_MID_EDGE_EXTRA_DB
+    global UL_MID_DIFF_RANGE_DB
+    global NOISE_JITTER_DB
+    global NOISE_RIPPLE_DB
+    global SUBTRACT_OUTSIDE_DBM
+    global RANDOM_SEED
+    global RANDOM_VARIATION
+    global MARKERS
+
+    FREQ_START_MHZ = int(config["freq_start_mhz"])
+    FREQ_STOP_MHZ = int(config["freq_stop_mhz"])
+    FREQ_STEP_MHZ = int(config["freq_step_mhz"])
+    BASELINE_DBM = float(config["baseline_dbm"])
+    MID_PEAK_DBM = float(config["mid_peak_dbm"])
+    PEAK_DBM = float(config["peak_dbm"])
+    MID_PEAK_RANGES_MHZ = normalize_ranges(config["mid_peak_ranges_mhz"])
+    PEAK_SAMPLE_RANGE_MHZ = normalize_range(config["peak_sample_range_mhz"])
+    UL_MID_RANGES_MHZ = normalize_ranges(config["ul_mid_ranges_mhz"])
+    UL_MAIN_RANGE_MHZ = normalize_range(config["ul_main_range_mhz"])
+    DL_RANGES_MHZ = normalize_ranges(config["dl_ranges_mhz"])
+    SUPPRESS_RANGES_MHZ = normalize_ranges(config["suppress_ranges_mhz"])
+    PEAK_MAX_ABOVE_FLOOR_DB = float(config["peak_max_above_floor_db"])
+    UL_MAIN_BASE_OFFSET_DB = float(config["ul_main_base_offset_db"])
+    UL_MAIN_EDGE_EXTRA_DB = float(config["ul_main_edge_extra_db"])
+    UL_MID_EDGE_EXTRA_DB = float(config["ul_mid_edge_extra_db"])
+    UL_MID_DIFF_RANGE_DB = tuple(float(v) for v in config["ul_mid_diff_range_db"])
+    NOISE_JITTER_DB = float(config["noise_jitter_db"])
+    NOISE_RIPPLE_DB = float(config["noise_ripple_db"])
+    SUBTRACT_OUTSIDE_DBM = float(config["subtract_outside_dbm"])
+    RANDOM_SEED = int(config["random_seed"])
+    RANDOM_VARIATION = float(config["random_variation"])
+    MARKERS = normalize_markers(config["markers"])
+
+
+def write_default_config(path: str) -> None:
+    Path(path).write_text(json.dumps(DEFAULT_CONFIG, indent=2), encoding="utf-8")
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Generate spectrum data and plot from a screenshot."
+    )
+    parser.add_argument("--config", help="Path to JSON config file.")
+    parser.add_argument(
+        "--write-config",
+        help="Write default config JSON to path and exit.",
+    )
+    parser.add_argument(
+        "--image",
+        default=str(IMAGE_PATH),
+        help="Path to input screenshot image.",
+    )
+    parser.add_argument(
+        "--output-csv",
+        default=str(OUTPUT_CSV),
+        help="Path to output CSV file.",
+    )
+    parser.add_argument(
+        "--output-png",
+        default=str(OUTPUT_PNG),
+        help="Path to output PNG plot.",
+    )
+    return parser.parse_args()
 
 
 def is_trace_pixel(r: int, g: int, b: int) -> bool:
@@ -237,10 +395,24 @@ def amplitude_at(freq: float, frequencies: list[int], amplitudes: list[float]) -
 
 
 def main() -> None:
-    if not IMAGE_PATH.exists():
-        raise SystemExit(f"Missing input image: {IMAGE_PATH}")
+    args = parse_args()
+    if args.write_config:
+        write_default_config(args.write_config)
+        print(f"Wrote default config to {args.write_config}")
+        return
 
-    image = Image.open(IMAGE_PATH)
+    config = load_config(args.config)
+    apply_config(config)
+    plot_config = config["plot"]
+
+    image_path = Path(args.image)
+    output_csv = Path(args.output_csv)
+    output_png = Path(args.output_png)
+
+    if not image_path.exists():
+        raise SystemExit(f"Missing input image: {image_path}")
+
+    image = Image.open(image_path)
     y_by_x, x_min, x_max = extract_trace_y(image)
     slope, intercept = estimate_scale(y_by_x, x_min, x_max)
 
@@ -293,7 +465,7 @@ def main() -> None:
             for idx in band_indices:
                 amplitudes[idx] -= delta
 
-    with OUTPUT_CSV.open("w", newline="", encoding="utf-8") as handle:
+    with output_csv.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
         writer.writerow(["Frequency_MHz", "Amplitude_dBm"])
         for freq, amp in zip(frequencies, amplitudes):
@@ -305,63 +477,79 @@ def main() -> None:
         marker_values.append((marker_id, marker_freq, marker_amp))
 
     fig, (ax, ax_text) = plt.subplots(
-        2, 1, figsize=(10, 4.8), gridspec_kw={"height_ratios": [4, 1]}
+        2,
+        1,
+        figsize=tuple(plot_config.get("figure_size", [10, 4.8])),
+        gridspec_kw={"height_ratios": [4, 1]},
     )
     ax.plot(frequencies, amplitudes)
-    ax.plot(
-        [freq for _, freq, _ in marker_values],
-        [amp for _, _, amp in marker_values],
-        linestyle="None",
-        marker="o",
-        color="black",
-        markersize=4,
-    )
-    for marker_id, marker_freq, marker_amp in marker_values:
-        ax.annotate(
-            str(marker_id),
-            (marker_freq, marker_amp),
-            textcoords="offset points",
-            xytext=(0, 4),
-            ha="center",
-            va="bottom",
-            fontsize=7,
-            color="black",
+    marker_color = plot_config.get("marker_color", "black")
+    marker_size = plot_config.get("marker_size", 4)
+    marker_label_size = plot_config.get("marker_label_size", 7)
+    if marker_values:
+        ax.plot(
+            [freq for _, freq, _ in marker_values],
+            [amp for _, _, amp in marker_values],
+            linestyle="None",
+            marker="o",
+            color=marker_color,
+            markersize=marker_size,
         )
+        for marker_id, marker_freq, marker_amp in marker_values:
+            ax.annotate(
+                str(marker_id),
+                (marker_freq, marker_amp),
+                textcoords="offset points",
+                xytext=(0, 4),
+                ha="center",
+                va="bottom",
+                fontsize=marker_label_size,
+                color=marker_color,
+            )
     ax.set_xlabel("Frequency (MHz)")
     ax.set_ylabel("Amplitude (dBm)")
-    ax.grid(True)
+    ax.grid(bool(plot_config.get("grid", True)))
 
     ax_text.axis("off")
-    formatted = {
-        marker_id: f"Marker {marker_id}: {freq:.4f} MHz, {amp:.1f} dBm"
-        for marker_id, freq, amp in marker_values
-    }
-    columns = ([1, 4, 7], [2, 5, 8], [3, 6, 9])
-    column_width = 42
-    lines = []
-    for row_idx in range(max(len(col) for col in columns)):
-        parts = []
-        for col in columns:
-            if row_idx < len(col):
-                parts.append(formatted[col[row_idx]].ljust(column_width))
-            else:
-                parts.append("".ljust(column_width))
-        lines.append("".join(parts).rstrip())
+    if marker_values:
+        formatted = {
+            marker_id: f"Marker {marker_id}: {freq:.4f} MHz, {amp:.1f} dBm"
+            for marker_id, freq, amp in marker_values
+        }
+        columns_count = max(1, int(plot_config.get("footer_columns", 3)))
+        rows = math.ceil(len(marker_values) / columns_count)
+        columns: list[list[int]] = [[] for _ in range(columns_count)]
+        for row in range(rows):
+            for col in range(columns_count):
+                idx = row * columns_count + col
+                if idx < len(marker_values):
+                    columns[col].append(marker_values[idx][0])
 
-    ax_text.text(
-        0.01,
-        0.9,
-        "\n".join(lines),
-        va="top",
-        ha="left",
-        family="monospace",
-        fontsize=8,
-    )
+        column_width = int(plot_config.get("footer_column_width", 42))
+        lines = []
+        for row_idx in range(max(len(col) for col in columns)):
+            parts = []
+            for col in columns:
+                if row_idx < len(col):
+                    parts.append(formatted[col[row_idx]].ljust(column_width))
+                else:
+                    parts.append("".ljust(column_width))
+            lines.append("".join(parts).rstrip())
+
+        ax_text.text(
+            0.01,
+            0.9,
+            "\n".join(lines),
+            va="top",
+            ha="left",
+            family="monospace",
+            fontsize=plot_config.get("footer_font_size", 8),
+        )
 
     fig.tight_layout()
-    fig.savefig(OUTPUT_PNG, dpi=150)
+    fig.savefig(output_png, dpi=int(plot_config.get("dpi", 150)))
 
-    print(f"Wrote {OUTPUT_CSV} and {OUTPUT_PNG}")
+    print(f"Wrote {output_csv} and {output_png}")
 
 
 if __name__ == "__main__":

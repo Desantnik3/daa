@@ -1,0 +1,59 @@
+{
+  "freq_start_mhz": 850,
+  "freq_stop_mhz": 2730,
+  "freq_step_mhz": 5,
+  "baseline_dbm": -50.0,
+  "mid_peak_dbm": -34.0,
+  "peak_dbm": 10.0,
+  "mid_peak_ranges_mhz": [
+    [1800, 1860],
+    [2080, 2140]
+  ],
+  "peak_sample_range_mhz": [2620, 2690],
+  "ul_mid_ranges_mhz": [
+    [1710, 1785],
+    [1920, 1980]
+  ],
+  "ul_main_range_mhz": [2500, 2570],
+  "dl_ranges_mhz": [
+    [1805, 1880],
+    [2110, 2170],
+    [2620, 2690]
+  ],
+  "suppress_ranges_mhz": [
+    [2090, 2230],
+    [2600, 2730]
+  ],
+  "peak_max_above_floor_db": 75.0,
+  "ul_main_base_offset_db": 70.0,
+  "ul_main_edge_extra_db": 5.0,
+  "ul_mid_edge_extra_db": 4.0,
+  "ul_mid_diff_range_db": [3.0, 5.0],
+  "noise_jitter_db": 2.8,
+  "noise_ripple_db": 0.8,
+  "subtract_outside_dbm": 20.0,
+  "random_seed": 20260121,
+  "random_variation": 0.02,
+  "markers": [
+    { "id": 1, "freq_mhz": 890.0 },
+    { "id": 2, "freq_mhz": 935.0 },
+    { "id": 3, "freq_mhz": 1735.0 },
+    { "id": 4, "freq_mhz": 1835.0 },
+    { "id": 5, "freq_mhz": 1960.0 },
+    { "id": 6, "freq_mhz": 2110.0 },
+    { "id": 7, "freq_mhz": 2540.0 },
+    { "id": 8, "freq_mhz": 2660.0 },
+    { "id": 9, "freq_mhz": 2712.6 }
+  ],
+  "plot": {
+    "figure_size": [10, 4.8],
+    "dpi": 150,
+    "marker_color": "black",
+    "marker_size": 4,
+    "marker_label_size": 7,
+    "footer_column_width": 42,
+    "footer_font_size": 8,
+    "footer_columns": 3,
+    "grid": true
+  }
+}
