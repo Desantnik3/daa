@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import sys
 from copy import deepcopy
 from pathlib import Path
 from tkinter import filedialog, messagebox
@@ -133,6 +132,7 @@ class SpectrumApp:
         self.image_path_var = tk.StringVar()
         self.output_csv_var = tk.StringVar()
         self.output_png_var = tk.StringVar()
+        self.save_csv_var = tk.BooleanVar(value=True)
 
         self.freq_start_var = tk.StringVar()
         self.freq_stop_var = tk.StringVar()
@@ -166,6 +166,9 @@ class SpectrumApp:
         self.suppress_ranges_text: tk.Text | None = None
 
         self.log_text: tk.Text | None = None
+        self.log_menu: tk.Menu | None = None
+        self.csv_entry: ttk.Entry | None = None
+        self.csv_browse_button: ttk.Button | None = None
 
         self._build_ui()
         self.populate_from_config(self.config)
@@ -199,7 +202,11 @@ class SpectrumApp:
                 return candidate
         raise RuntimeError(f"Не удалось подобрать имя для {path}")
 
-    def _ensure_unique_outputs(self, csv_path: Path, png_path: Path) -> tuple[Path, Path]:
+    def _ensure_unique_outputs(
+        self, csv_path: Path | None, png_path: Path
+    ) -> tuple[Path | None, Path]:
+        if csv_path is None:
+            return None, self._ensure_unique_single(png_path)
         if csv_path.parent == png_path.parent and csv_path.stem == png_path.stem:
             if not csv_path.exists() and not png_path.exists():
                 return csv_path, png_path
@@ -247,10 +254,6 @@ class SpectrumApp:
         save_button.pack(side="left", padx=(8, 0))
         self._add_tooltip(save_button, "Сохранить текущие параметры в JSON.")
 
-        copy_button = ttk.Button(actions, text="Копировать лог", command=self.on_copy_log)
-        copy_button.pack(side="left", padx=(8, 0))
-        self._add_tooltip(copy_button, "Скопировать весь лог в буфер обмена.")
-
         generate_button = ttk.Button(
             actions, text="Сгенерировать", command=self.on_generate
         )
@@ -263,6 +266,7 @@ class SpectrumApp:
         log_frame.pack(fill="both", expand=True, padx=10, pady=(0, 10))
         self.log_text = tk.Text(log_frame, height=6, wrap="word")
         self.log_text.pack(fill="both", expand=True)
+        self._setup_log_copy()
 
     def _build_files_tab(self, parent: ttk.Frame) -> None:
         parent.columnconfigure(1, weight=1)
@@ -284,10 +288,21 @@ class SpectrumApp:
         entry.grid(row=1, column=1, sticky="ew", padx=6)
         button = ttk.Button(parent, text="Обзор", command=self.browse_output_csv)
         button.grid(row=1, column=2)
+        self.csv_entry = entry
+        self.csv_browse_button = button
         tooltip = "Путь для сохранения таблицы Frequency/Amplitude."
         self._add_tooltip(label, tooltip)
         self._add_tooltip(entry, tooltip)
         self._add_tooltip(button, "Выбрать файл CSV для сохранения.")
+
+        checkbox = ttk.Checkbutton(
+            parent,
+            text="Сохранять CSV",
+            variable=self.save_csv_var,
+            command=self.on_toggle_csv,
+        )
+        checkbox.grid(row=1, column=3, sticky="w")
+        self._add_tooltip(checkbox, "Если выключить, CSV не сохраняется.")
 
         label = ttk.Label(parent, text="Выходной PNG")
         label.grid(row=2, column=0, sticky="w")
@@ -550,22 +565,46 @@ class SpectrumApp:
     def _add_tooltip(self, widget: tk.Widget, text: str) -> None:
         self.tooltips.append(ToolTip(widget, text))
 
+    def _setup_log_copy(self) -> None:
+        if not self.log_text:
+            return
+        self.log_menu = tk.Menu(self.root, tearoff=0)
+        self.log_menu.add_command(label="Копировать", command=self.on_copy_log)
+        self.log_text.bind("<Button-3>", self.show_log_menu)
+        self.log_text.bind("<Button-2>", self.show_log_menu)
+        self.log_text.bind("<Control-c>", self.on_copy_log)
+
+    def show_log_menu(self, event: tk.Event) -> None:
+        if not self.log_menu:
+            return
+        if not self.log_text or not self.log_text.tag_ranges("sel"):
+            return
+        self.log_menu.tk_popup(event.x_root, event.y_root)
+
+    def on_toggle_csv(self) -> None:
+        state = "normal" if self.save_csv_var.get() else "disabled"
+        if self.csv_entry:
+            self.csv_entry.configure(state=state)
+        if self.csv_browse_button:
+            self.csv_browse_button.configure(state=state)
+
     def log(self, message: str) -> None:
         if not self.log_text:
             return
         self.log_text.insert("end", message + "\n")
         self.log_text.see("end")
 
-    def on_copy_log(self) -> None:
+    def on_copy_log(self, _event: tk.Event | None = None) -> str:
         if not self.log_text:
-            return
-        content = self.log_text.get("1.0", "end").strip()
+            return "break"
+        if not self.log_text.tag_ranges("sel"):
+            return "break"
+        content = self.log_text.get("sel.first", "sel.last")
         if not content:
-            messagebox.showinfo("Лог", "Лог пуст.")
-            return
+            return "break"
         self.root.clipboard_clear()
         self.root.clipboard_append(content)
-        self.log("Лог скопирован в буфер обмена.")
+        return "break"
 
     def browse_image(self) -> None:
         initial_dir, initial_file = self._initial_dir_and_file(
@@ -650,23 +689,32 @@ class SpectrumApp:
         image_path = self.image_path_var.get().strip()
         output_csv = self.output_csv_var.get().strip()
         output_png = self.output_png_var.get().strip()
-        if not image_path or not output_csv or not output_png:
+        if not image_path or not output_png:
             messagebox.showerror(
-                "Ошибка генерации", "Заполните пути входа/выхода."
+                "Ошибка генерации", "Заполните путь к изображению и PNG."
+            )
+            return
+        if self.save_csv_var.get() and not output_csv:
+            messagebox.showerror(
+                "Ошибка генерации", "Укажите путь для CSV или отключите сохранение."
             )
             return
 
         image_path_obj = Path(image_path).expanduser()
-        output_csv_obj = Path(output_csv).expanduser()
         output_png_obj = Path(output_png).expanduser()
+        output_csv_obj = (
+            Path(output_csv).expanduser() if self.save_csv_var.get() else None
+        )
         output_csv_obj, output_png_obj = self._ensure_unique_outputs(
             output_csv_obj, output_png_obj
         )
-        if str(output_csv_obj) != output_csv or str(output_png_obj) != output_png:
-            self.log("Имена заняты, новые файлы сохранены как:")
+        if output_csv_obj and str(output_csv_obj) != output_csv:
+            self.log("Имя CSV занято, сохранено как:")
             self.log(f"  CSV: {output_csv_obj}")
-            self.log(f"  PNG: {output_png_obj}")
             self.output_csv_var.set(str(output_csv_obj))
+        if str(output_png_obj) != output_png:
+            self.log("Имя PNG занято, сохранено как:")
+            self.log(f"  PNG: {output_png_obj}")
             self.output_png_var.set(str(output_png_obj))
 
         try:
@@ -681,8 +729,12 @@ class SpectrumApp:
             messagebox.showerror("Ошибка генерации", str(exc))
             return
 
-        self.log(f"Созданы файлы: {output_csv_obj}, {output_png_obj}")
-        messagebox.showinfo("Готово", "График и CSV успешно созданы.")
+        if output_csv_obj:
+            self.log(f"Созданы файлы: {output_csv_obj}, {output_png_obj}")
+            messagebox.showinfo("Готово", "График и CSV успешно созданы.")
+        else:
+            self.log(f"Создан файл: {output_png_obj}")
+            messagebox.showinfo("Готово", "График успешно создан.")
 
     def populate_from_config(self, config: dict) -> None:
         self.config = deepcopy(config)
@@ -743,6 +795,7 @@ class SpectrumApp:
             self.markers_text.insert(
                 "1.0", format_marker_lines(config["markers"])
             )
+        self.on_toggle_csv()
 
     def build_config(self) -> dict:
         config = deepcopy(self.config)

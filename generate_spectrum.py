@@ -406,14 +406,20 @@ def amplitude_at(freq: float, frequencies: list[int], amplitudes: list[float]) -
     return a0 + (a1 - a0) * t
 
 
-def generate_outputs(image_path: Path, output_csv: Path, output_png: Path, config: dict) -> None:
+def generate_outputs(
+    image_path: Path,
+    output_csv: Path | None,
+    output_png: Path,
+    config: dict,
+) -> None:
     apply_config(config)
     plot_config = config["plot"]
 
     if not image_path.exists():
         raise FileNotFoundError(f"Не найден файл изображения: {image_path}")
 
-    output_csv.parent.mkdir(parents=True, exist_ok=True)
+    if output_csv is not None:
+        output_csv.parent.mkdir(parents=True, exist_ok=True)
     output_png.parent.mkdir(parents=True, exist_ok=True)
 
     image = Image.open(image_path)
@@ -469,11 +475,12 @@ def generate_outputs(image_path: Path, output_csv: Path, output_png: Path, confi
             for idx in band_indices:
                 amplitudes[idx] -= delta
 
-    with output_csv.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.writer(handle)
-        writer.writerow(["Frequency_MHz", "Amplitude_dBm"])
-        for freq, amp in zip(frequencies, amplitudes):
-            writer.writerow([freq, f"{amp:.3f}"])
+    if output_csv is not None:
+        with output_csv.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(["Frequency_MHz", "Amplitude_dBm"])
+            for freq, amp in zip(frequencies, amplitudes):
+                writer.writerow([freq, f"{amp:.3f}"])
 
     marker_values = []
     for marker_id, marker_freq in MARKERS:
@@ -553,7 +560,10 @@ def generate_outputs(image_path: Path, output_csv: Path, output_png: Path, confi
     fig.tight_layout()
     fig.savefig(output_png, dpi=int(plot_config.get("dpi", 150)))
 
-    print(f"Wrote {output_csv} and {output_png}")
+    if output_csv is not None:
+        print(f"Wrote {output_csv} and {output_png}")
+    else:
+        print(f"Wrote {output_png}")
 
 
 def main() -> None:
