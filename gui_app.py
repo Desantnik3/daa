@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from copy import deepcopy
 from pathlib import Path
-import re
 from tkinter import filedialog, messagebox
 import tkinter as tk
 from tkinter import ttk
@@ -123,79 +122,17 @@ def format_marker_lines(markers: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def parse_range_rules_lines(text: str) -> list[dict]:
-    rules: list[dict] = []
-    for line in text.splitlines():
-        raw = line.strip()
-        if not raw:
-            continue
-        parts = [p.strip() for p in re.split(r"[|;]", raw) if p.strip()]
-        if len(parts) < 3:
-            raise ValueError(f"Неверная строка правила: {line}")
-        label = parts[0]
-        range_part = parts[1].replace(" ", "")
-        if "-" not in range_part:
-            raise ValueError(f"Неверный диапазон: {parts[1]}")
-        start_str, end_str = range_part.split("-", 1)
-        start = float(start_str)
-        end = float(end_str)
-        mode_raw = parts[2].lower()
-        mode_map = {
-            "raise": "raise",
-            "up": "raise",
-            "boost": "raise",
-            "поднять": "raise",
-            "увеличить": "raise",
-            "lower": "lower",
-            "down": "lower",
-            "noise": "lower",
-            "suppress": "lower",
-            "понизить": "lower",
-            "уменьшить": "lower",
-            "шум": "lower",
-        }
-        mode = mode_map.get(mode_raw)
-        if not mode:
-            raise ValueError(f"Неверный режим: {parts[2]}")
-        rule = {
-            "label": label,
-            "start_mhz": start,
-            "end_mhz": end,
-            "mode": mode,
-        }
-        if mode == "raise":
-            if len(parts) < 4:
-                raise ValueError(f"Нужен уровень для правила: {line}")
-            rule["target_db"] = float(parts[3])
-            if len(parts) >= 5 and parts[4]:
-                rule["edge_extra_db"] = float(parts[4])
-            if len(parts) >= 6 and parts[5]:
-                rule["jitter_db"] = float(parts[5])
-            if len(parts) >= 7 and parts[6]:
-                rule["cap_above_floor_db"] = float(parts[6])
-        rules.append(rule)
-    return rules
+def mode_to_label(mode: str) -> str:
+    return "поднять" if mode == "raise" else "понизить"
 
 
-def format_range_rules_lines(rules: list[dict]) -> str:
-    lines = []
-    for rule in rules:
-        label = rule.get("label", "")
-        start = rule.get("start_mhz", 0)
-        end = rule.get("end_mhz", 0)
-        mode = rule.get("mode", "lower")
-        mode_label = "поднять" if mode == "raise" else "понизить"
-        if mode == "raise":
-            target = rule.get("target_db", 0)
-            edge = rule.get("edge_extra_db", "")
-            jitter = rule.get("jitter_db", "")
-            cap = rule.get("cap_above_floor_db", "")
-            lines.append(
-                f"{label}; {start}-{end}; {mode_label}; {target}; {edge}; {jitter}; {cap}".strip()
-            )
-        else:
-            lines.append(f"{label}; {start}-{end}; {mode_label}")
-    return "\n".join(lines)
+def label_to_mode(label: str) -> str:
+    label = label.strip().lower()
+    if label in ("поднять", "raise", "up", "boost"):
+        return "raise"
+    if label in ("понизить", "lower", "down", "suppress", "noise"):
+        return "lower"
+    raise ValueError(f"Неверный режим: {label}")
 
 
 class SpectrumApp:
@@ -241,7 +178,15 @@ class SpectrumApp:
         self.ul_mid_ranges_text: tk.Text | None = None
         self.dl_ranges_text: tk.Text | None = None
         self.suppress_ranges_text: tk.Text | None = None
-        self.range_rules_text: tk.Text | None = None
+        self.range_rules_tree: ttk.Treeview | None = None
+        self.rule_label_var = tk.StringVar()
+        self.rule_start_var = tk.StringVar()
+        self.rule_end_var = tk.StringVar()
+        self.rule_mode_var = tk.StringVar(value="поднять")
+        self.rule_target_var = tk.StringVar()
+        self.rule_edge_var = tk.StringVar()
+        self.rule_jitter_var = tk.StringVar()
+        self.rule_cap_var = tk.StringVar()
 
         self.log_text: tk.Text | None = None
         self.log_menu: tk.Menu | None = None
@@ -487,19 +432,9 @@ class SpectrumApp:
             self.suppress_ranges_text, "Каждая строка: начало-конец диапазона."
         )
 
-        label = ttk.Label(parent, text="Правила диапазонов (по строке)")
-        label.grid(row=6, column=2, sticky="w", pady=(8, 0))
-        self._add_tooltip(
-            label,
-            "Формат: имя; 1710-1785; поднять; 70; 4; 2; 75",
-        )
-        self.range_rules_text = tk.Text(parent, height=6, width=24)
-        self.range_rules_text.grid(row=7, column=2, columnspan=2, sticky="ew")
-        self._add_tooltip(
-            self.range_rules_text,
-            "поля: имя; диапазон; поднять/понизить; "
-            "уровень; край; джиттер; лимит.",
-        )
+        rules_frame = ttk.LabelFrame(parent, text="Правила диапазонов")
+        rules_frame.grid(row=6, column=2, rowspan=3, columnspan=2, sticky="nsew")
+        self._build_range_rules_section(rules_frame)
 
     def _build_levels_tab(self, parent: ttk.Frame) -> None:
         for col in range(4):
@@ -668,6 +603,96 @@ class SpectrumApp:
             self.markers_text, "Каждая строка: id, частота в МГц."
         )
 
+    def _build_range_rules_section(self, parent: ttk.Frame) -> None:
+        parent.columnconfigure(1, weight=1)
+        fields = ttk.Frame(parent)
+        fields.grid(row=0, column=0, sticky="ew", padx=6, pady=6)
+        for col in range(6):
+            fields.columnconfigure(col, weight=1)
+
+        ttk.Label(fields, text="Имя").grid(row=0, column=0, sticky="w")
+        ttk.Entry(fields, textvariable=self.rule_label_var, width=14).grid(
+            row=0, column=1, sticky="w"
+        )
+        ttk.Label(fields, text="Старт").grid(row=0, column=2, sticky="w")
+        ttk.Entry(fields, textvariable=self.rule_start_var, width=8).grid(
+            row=0, column=3, sticky="w"
+        )
+        ttk.Label(fields, text="Конец").grid(row=0, column=4, sticky="w")
+        ttk.Entry(fields, textvariable=self.rule_end_var, width=8).grid(
+            row=0, column=5, sticky="w"
+        )
+
+        ttk.Label(fields, text="Режим").grid(row=1, column=0, sticky="w")
+        mode_box = ttk.Combobox(
+            fields,
+            textvariable=self.rule_mode_var,
+            values=["поднять", "понизить"],
+            width=10,
+        )
+        mode_box.grid(row=1, column=1, sticky="w")
+
+        ttk.Label(fields, text="Уровень").grid(row=1, column=2, sticky="w")
+        ttk.Entry(fields, textvariable=self.rule_target_var, width=8).grid(
+            row=1, column=3, sticky="w"
+        )
+        ttk.Label(fields, text="Край").grid(row=1, column=4, sticky="w")
+        ttk.Entry(fields, textvariable=self.rule_edge_var, width=8).grid(
+            row=1, column=5, sticky="w"
+        )
+
+        ttk.Label(fields, text="Джиттер").grid(row=2, column=0, sticky="w")
+        ttk.Entry(fields, textvariable=self.rule_jitter_var, width=8).grid(
+            row=2, column=1, sticky="w"
+        )
+        ttk.Label(fields, text="Лимит").grid(row=2, column=2, sticky="w")
+        ttk.Entry(fields, textvariable=self.rule_cap_var, width=8).grid(
+            row=2, column=3, sticky="w"
+        )
+
+        buttons = ttk.Frame(parent)
+        buttons.grid(row=1, column=0, sticky="ew", padx=6)
+        ttk.Button(buttons, text="Добавить", command=self.on_add_rule).pack(
+            side="left"
+        )
+        ttk.Button(buttons, text="Обновить", command=self.on_update_rule).pack(
+            side="left", padx=(6, 0)
+        )
+        ttk.Button(buttons, text="Удалить", command=self.on_delete_rule).pack(
+            side="left", padx=(6, 0)
+        )
+        ttk.Button(buttons, text="Очистить", command=self.on_clear_rule).pack(
+            side="left", padx=(6, 0)
+        )
+
+        columns = ("label", "start", "end", "mode", "target", "edge", "jitter", "cap")
+        tree = ttk.Treeview(parent, columns=columns, show="headings", height=6)
+        tree.grid(row=2, column=0, sticky="nsew", padx=6, pady=6)
+        parent.rowconfigure(2, weight=1)
+
+        headings = {
+            "label": "Имя",
+            "start": "Старт",
+            "end": "Конец",
+            "mode": "Режим",
+            "target": "Уровень",
+            "edge": "Край",
+            "jitter": "Джиттер",
+            "cap": "Лимит",
+        }
+        for col, title in headings.items():
+            tree.heading(col, text=title)
+            tree.column(col, width=80, anchor="center")
+        tree.column("label", width=120, anchor="w")
+        tree.column("mode", width=90, anchor="center")
+        self.range_rules_tree = tree
+        tree.bind("<<TreeviewSelect>>", self.on_rule_select)
+
+        self._add_tooltip(
+            tree,
+            "Правила определяют, какие диапазоны поднимать/понижать.",
+        )
+
     def _build_preview_tab(self, parent: ttk.Frame) -> None:
         self.preview_frame = ttk.Frame(parent)
         self.preview_frame.pack(fill="both", expand=True, padx=6, pady=6)
@@ -722,6 +747,105 @@ class SpectrumApp:
         self.root.clipboard_clear()
         self.root.clipboard_append(content)
         return "break"
+
+    def _read_rule_inputs(self) -> dict:
+        label = self.rule_label_var.get().strip() or "Без имени"
+        start = float(self.rule_start_var.get())
+        end = float(self.rule_end_var.get())
+        mode = label_to_mode(self.rule_mode_var.get())
+        if start >= end:
+            raise ValueError("Старт диапазона должен быть меньше конца.")
+        rule = {
+            "label": label,
+            "start_mhz": start,
+            "end_mhz": end,
+            "mode": mode,
+        }
+        if mode == "raise":
+            if not self.rule_target_var.get().strip():
+                raise ValueError("Для режима 'поднять' нужен уровень.")
+            rule["target_db"] = float(self.rule_target_var.get())
+            if self.rule_edge_var.get().strip():
+                rule["edge_extra_db"] = float(self.rule_edge_var.get())
+            if self.rule_jitter_var.get().strip():
+                rule["jitter_db"] = float(self.rule_jitter_var.get())
+            if self.rule_cap_var.get().strip():
+                rule["cap_above_floor_db"] = float(self.rule_cap_var.get())
+        return rule
+
+    def _rule_to_values(self, rule: dict) -> tuple[str, str, str, str, str, str, str, str]:
+        return (
+            str(rule.get("label", "")),
+            f"{rule.get('start_mhz', '')}",
+            f"{rule.get('end_mhz', '')}",
+            mode_to_label(rule.get("mode", "lower")),
+            f"{rule.get('target_db', '')}" if rule.get("mode") == "raise" else "",
+            f"{rule.get('edge_extra_db', '')}" if rule.get("mode") == "raise" else "",
+            f"{rule.get('jitter_db', '')}" if rule.get("mode") == "raise" else "",
+            f"{rule.get('cap_above_floor_db', '')}" if rule.get("mode") == "raise" else "",
+        )
+
+    def on_add_rule(self) -> None:
+        if not self.range_rules_tree:
+            return
+        try:
+            rule = self._read_rule_inputs()
+        except Exception as exc:
+            messagebox.showerror("Ошибка правила", str(exc))
+            return
+        self.range_rules_tree.insert("", "end", values=self._rule_to_values(rule))
+        self.on_clear_rule()
+
+    def on_update_rule(self) -> None:
+        if not self.range_rules_tree:
+            return
+        selected = self.range_rules_tree.selection()
+        if not selected:
+            messagebox.showinfo("Правила", "Выберите правило для обновления.")
+            return
+        try:
+            rule = self._read_rule_inputs()
+        except Exception as exc:
+            messagebox.showerror("Ошибка правила", str(exc))
+            return
+        self.range_rules_tree.item(selected[0], values=self._rule_to_values(rule))
+
+    def on_delete_rule(self) -> None:
+        if not self.range_rules_tree:
+            return
+        selected = self.range_rules_tree.selection()
+        if not selected:
+            return
+        for item in selected:
+            self.range_rules_tree.delete(item)
+
+    def on_clear_rule(self) -> None:
+        self.rule_label_var.set("")
+        self.rule_start_var.set("")
+        self.rule_end_var.set("")
+        self.rule_mode_var.set("поднять")
+        self.rule_target_var.set("")
+        self.rule_edge_var.set("")
+        self.rule_jitter_var.set("")
+        self.rule_cap_var.set("")
+
+    def on_rule_select(self, _event: tk.Event | None = None) -> None:
+        if not self.range_rules_tree:
+            return
+        selected = self.range_rules_tree.selection()
+        if not selected:
+            return
+        values = self.range_rules_tree.item(selected[0], "values")
+        if not values or len(values) < 8:
+            return
+        self.rule_label_var.set(values[0])
+        self.rule_start_var.set(values[1])
+        self.rule_end_var.set(values[2])
+        self.rule_mode_var.set(values[3])
+        self.rule_target_var.set(values[4])
+        self.rule_edge_var.set(values[5])
+        self.rule_jitter_var.set(values[6])
+        self.rule_cap_var.set(values[7])
 
     def browse_image(self) -> None:
         initial_dir, initial_file = self._initial_dir_and_file(
@@ -951,11 +1075,13 @@ class SpectrumApp:
             self.markers_text.insert(
                 "1.0", format_marker_lines(config["markers"])
             )
-        if self.range_rules_text:
-            self.range_rules_text.delete("1.0", "end")
-            self.range_rules_text.insert(
-                "1.0", format_range_rules_lines(config.get("range_rules", []))
-            )
+        if self.range_rules_tree:
+            for item in self.range_rules_tree.get_children():
+                self.range_rules_tree.delete(item)
+            for rule in config.get("range_rules", []):
+                self.range_rules_tree.insert(
+                    "", "end", values=self._rule_to_values(rule)
+                )
         self.on_toggle_csv()
 
     def build_config(self) -> dict:
@@ -1014,11 +1140,31 @@ class SpectrumApp:
         config["markers"] = parse_marker_lines(
             self.markers_text.get("1.0", "end")
         )
-        if not self.range_rules_text:
+        if not self.range_rules_tree:
             raise ValueError("Не заданы правила диапазонов.")
-        config["range_rules"] = parse_range_rules_lines(
-            self.range_rules_text.get("1.0", "end")
-        )
+        rules: list[dict] = []
+        for item in self.range_rules_tree.get_children():
+            values = self.range_rules_tree.item(item, "values")
+            if len(values) < 8:
+                continue
+            rule = {
+                "label": values[0],
+                "start_mhz": float(values[1]),
+                "end_mhz": float(values[2]),
+                "mode": label_to_mode(values[3]),
+            }
+            if rule["mode"] == "raise":
+                rule["target_db"] = float(values[4])
+                if values[5]:
+                    rule["edge_extra_db"] = float(values[5])
+                if values[6]:
+                    rule["jitter_db"] = float(values[6])
+                if values[7]:
+                    rule["cap_above_floor_db"] = float(values[7])
+            rules.append(rule)
+        if not rules:
+            raise ValueError("Не заданы правила диапазонов.")
+        config["range_rules"] = rules
 
         return config
 
