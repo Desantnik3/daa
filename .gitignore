@@ -1,0 +1,16 @@
+# Конфиденциальные данные — не отправлять в GitHub
+data/*
+!data/.gitkeep
+projects/*
+!projects/.gitkeep
+
+# Заполненные КП с ценами
+*_заполнено.xlsx
+КП_Итоговые/
+
+# Служебное
+__pycache__/
+*.pyc
+.env
+.DS_Store
+Thumbs.db
